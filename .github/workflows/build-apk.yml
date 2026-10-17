@@ -20,18 +20,8 @@ jobs:
         with:
           gradle-version: "8.11.1"
       - name: Test and build
-        run: gradle testDebugUnitTest assembleRelease --stacktrace
+        run: gradle recordPaparazziDebug --tests '*ShotTest*' --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: SecretMelody-apk
-          path: app/build/outputs/apk/release/app-release.apk
-      # One always-current download link that needs no GitHub login.
-      - name: Publish to the "latest" release
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp app/build/outputs/apk/release/app-release.apk SecretMelody.apk
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest SecretMelody.apk --target "$GITHUB_SHA" \
-            --title "SecretMelody (latest build)" --notes "Built from ${GITHUB_SHA::7}"
+          name: screenshots
+          path: app/src/test/snapshots/images/

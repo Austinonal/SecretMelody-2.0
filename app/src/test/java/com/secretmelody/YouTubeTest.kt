@@ -62,6 +62,16 @@ class YouTubeTest {
         assertEquals("" to "", parseOembed("{}"))
     }
 
+    @Test
+    fun linksFromSharedText() {
+        val watch = "https://www.youtube.com/watch?v=$id"
+        assertEquals(watch, linkFromShare("https://youtu.be/$id?si=AbCdEf"))
+        assertEquals(watch, linkFromShare("Never Gonna Give You Up\nhttps://youtube.com/shorts/$id?feature=share"))
+        assertEquals("https://example.com/a.mp3", linkFromShare("ฟังนี่ https://example.com/a.mp3 นะ"))
+        assertNull(linkFromShare("แค่ข้อความ ไม่มีลิงก์"))
+        assertNull(linkFromShare("http://example.com/a.mp3"))
+    }
+
     private fun tooLong(block: () -> Unit) =
         assertTrue(assertThrows(ImportException::class.java) { block() }.message!!.startsWith("วิดีโอยาวเกินไป"))
 }

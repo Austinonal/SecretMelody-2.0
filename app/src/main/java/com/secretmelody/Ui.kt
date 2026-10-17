@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.palette.graphics.Palette
 import androidx.activity.result.IntentSenderRequest
@@ -146,7 +147,14 @@ private fun greeting() = when (LocalTime.now().hour) {
 }
 
 @Composable
-fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIncomingHandled: () -> Unit = {}) {
+fun App(
+    player: Player?,
+    startTick: Int,
+    incoming: List<Uri> = emptyList(),
+    onIncomingHandled: () -> Unit = {},
+    sharedLink: String? = null,
+    onSharedLinkHandled: () -> Unit = {},
+) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(has(context, audioPermission())) }
     LaunchedEffect(startTick) { granted = has(context, audioPermission()) }
@@ -349,6 +357,22 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
                 linkImport.error = "นำเข้าไม่สำเร็จ: ${e.message ?: e.javaClass.simpleName}"
             } finally {
                 linkImport.running = false
+            }
+        }
+    }
+    LaunchedEffect(sharedLink) {
+        val text = sharedLink ?: return@LaunchedEffect
+        onSharedLinkHandled()
+        val link = linkFromShare(text)
+        when {
+            link == null -> toast("ไม่พบลิงก์ในข้อความที่แชร์มา")
+            linkImport.running -> toast("กำลังแปลงเพลงอื่นอยู่ รอให้เสร็จก่อน")
+            else -> {
+                linkImport.url = link
+                linkImport.error = null
+                showNowPlaying = false; showQueue = false; opened = null; openedPlaylist = null; coverStage = ""
+                tab = 3
+                settingsPage = "link"
             }
         }
     }
@@ -1330,6 +1354,15 @@ private fun NowPlaying(
                 Icon(Icons.Default.Bedtime, "ตั้งเวลาปิดเพลง", tint = if (label != null) Accent else Color.White)
             }
             if (label != null) Text(label, color = Accent, fontSize = 13.sp)
+            Spacer(Modifier.weight(1f))
+            // Speed and pitch move together, like the slowed / nightcore versions people upload.
+            listOf(0.8f to "Slowed", 1f to "ปกติ", 1.25f to "Nightcore").forEach { (s, name) ->
+                val on = ui.speed == s
+                TextButton(
+                    onClick = { player.playbackParameters = PlaybackParameters(s, s) },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) { Text(name, color = if (on) Accent else Muted, fontSize = 13.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal) }
+            }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onQueue) {
                 Icon(Icons.AutoMirrored.Filled.QueueMusic, "คิว", tint = Color.White)

@@ -49,6 +49,11 @@ fun youtubeId(raw: String): String? =
     Regex("""(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])""")
         .find(raw.trim())?.groupValues?.get(1)
 
+/** The link inside shared text (apps often add a title around it): a YouTube video in its plain form, else the first https link. */
+fun linkFromShare(text: String): String? =
+    youtubeId(text)?.let { "https://www.youtube.com/watch?v=$it" }
+        ?: Regex("""https://\S+""").find(text)?.value
+
 /** Refuses videos too long for the format, and ones with no length (live now, premiere not started). */
 fun checkDuration(seconds: Long?, format: YtFormat) {
     if (seconds == null || seconds <= 0) throw ImportException("วิดีโอนี้แปลงไม่ได้")

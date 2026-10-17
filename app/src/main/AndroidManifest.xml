@@ -36,6 +36,12 @@
                 <data android:mimeType="application/ogg" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
+            <!-- Share a link (YouTube's Share button sends text) to open it in "นำเข้าจากลิงก์". -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

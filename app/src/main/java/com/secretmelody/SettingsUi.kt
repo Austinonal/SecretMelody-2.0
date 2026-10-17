@@ -46,6 +46,8 @@ class LinkImportState {
     var total by mutableLongStateOf(0L)
     var error by mutableStateOf<String?>(null)
     var resultId by mutableStateOf<Long?>(null)
+    var format by mutableStateOf(YtFormat.MP3)
+    var percent by mutableStateOf<Float?>(null) // null = a plain file download, shown in MB
 }
 
 @Composable
@@ -108,7 +110,7 @@ fun SettingsScreen(
         )
         SectionLabel("นำเข้าเพลง")
         SettingRow(Icons.Default.FolderOpen, "เลือกไฟล์จากเครื่อง", "เลือกได้หลายไฟล์พร้อมกัน จาก Drive, แฟลชไดรฟ์ หรือโฟลเดอร์ในเครื่อง", enabled = !files.busy, onClick = onPickFiles)
-        SettingRow(Icons.Default.Link, "นำเข้าจากลิงก์", "วางลิงก์ไฟล์เสียงตรงๆ (.mp3, .m4a) ที่คุณมีสิทธิ์ใช้", onClick = onOpenLink)
+        SettingRow(Icons.Default.Link, "นำเข้าจากลิงก์", "วางลิงก์ไฟล์เสียง (.mp3, .m4a) หรือลิงก์ YouTube ที่คุณมีสิทธิ์ใช้", onClick = onOpenLink)
         files.text?.let { text ->
             Row(
                 Modifier
@@ -237,6 +239,7 @@ fun BackgroundGuideScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class) // SegmentedButton
 @Composable
 fun LinkImportScreen(
     state: LinkImportState,
@@ -268,15 +271,38 @@ fun LinkImportScreen(
                         enabled = !state.running,
                     ) { Icon(Icons.Default.ContentPaste, "วางจากคลิปบอร์ด") }
                 },
-                supportingText = { Text(state.error ?: "ต้องเป็นลิงก์ที่ชี้ไปที่ไฟล์เสียงโดยตรง และขึ้นต้นด้วย https://") },
+                supportingText = { Text(state.error ?: "ลิงก์ไฟล์เสียงตรงๆ หรือลิงก์ YouTube ขึ้นต้นด้วย https://") },
             )
+            val youtube = youtubeId(state.url) != null
+            if (youtube) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    YtFormat.entries.forEachIndexed { i, f ->
+                        SegmentedButton(
+                            selected = state.format == f,
+                            onClick = { state.format = f },
+                            shape = SegmentedButtonDefaults.itemShape(i, YtFormat.entries.size),
+                            enabled = !state.running,
+                            colors = SegmentedButtonDefaults.colors(activeContainerColor = Accent, activeContentColor = Color.Black),
+                        ) { Text(f.name) }
+                    }
+                }
+            }
             Spacer(Modifier.height(8.dp))
             if (state.running) {
-                val fraction = if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
+                val percent = state.percent
+                val fraction = when {
+                    percent != null -> percent.coerceIn(0f, 1f)
+                    state.total > 0 -> (state.done.toFloat() / state.total).coerceIn(0f, 1f)
+                    else -> null
+                }
                 if (fraction != null) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth(), color = Accent)
                 else LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent)
                 Text(
-                    if (state.total > 0) "กำลังโหลด ${formatSize(state.done)} / ${formatSize(state.total)}" else "กำลังโหลด ${formatSize(state.done)}",
+                    when {
+                        percent != null -> "กำลังแปลง ${(percent * 100).toInt()}%"
+                        state.total > 0 -> "กำลังโหลด ${formatSize(state.done)} / ${formatSize(state.total)}"
+                        else -> "กำลังโหลด ${formatSize(state.done)}"
+                    },
                     color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp),
                 )
                 OutlinedButton(onClick = onCancel, Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("ยกเลิก") }
@@ -286,7 +312,7 @@ fun LinkImportScreen(
                     enabled = state.url.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
-                ) { Text("นำเข้า", fontWeight = FontWeight.Bold) }
+                ) { Text(if (youtube) "แปลง" else "นำเข้า", fontWeight = FontWeight.Bold) }
             }
             imported?.let { t ->
                 Spacer(Modifier.height(20.dp))
@@ -312,7 +338,7 @@ fun LinkImportScreen(
             }
             Text(
                 "ใช้ได้กับไฟล์ที่คุณมีสิทธิ์ เช่น เพลงของคุณเอง ลิงก์แชร์จาก Google Drive ของคุณ หรือเพลงที่เจ้าของอนุญาตให้ดาวน์โหลด" +
-                    "\nลิงก์ของ YouTube, TikTok, Spotify หรือหน้าเว็บทั่วไปใช้ไม่ได้ เพราะไม่ใช่ไฟล์เสียง",
+                    "\nลิงก์ YouTube แปลงเป็น MP3 (ไม่เกิน 240 นาที) หรือ MP4 360p (ไม่เกิน 30 นาที) ได้ ส่วน TikTok, Spotify และหน้าเว็บทั่วไปยังใช้ไม่ได้",
                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 24.dp, bottom = 24.dp),
             )
         }

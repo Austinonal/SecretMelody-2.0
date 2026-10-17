@@ -14,7 +14,12 @@ android {
         targetSdk = 35
         versionCode = 7
         versionName = "0.7"
+        // shortcut: arm64 only keeps the APK small; add "armeabi-v7a" if someone has an old 32-bit phone
+        ndk { abiFilters += "arm64-v8a" }
     }
+
+    // yt-dlp's bundled python/ffmpeg must be extracted to disk to run
+    packaging { jniLibs { useLegacyPackaging = true } }
 
     signingConfigs {
         // Fixed debug key so each CI-built APK installs over the previous one. Never use for the Play Store.
@@ -57,6 +62,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-session:1.5.1")
     implementation("androidx.palette:palette:1.0.0")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // Android's org.json is a stub in local unit tests
 }

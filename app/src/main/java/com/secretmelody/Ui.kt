@@ -308,16 +308,30 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
         linkImport.resultId = null
         linkImport.done = 0
         linkImport.total = 0
+        val videoId = youtubeId(linkImport.url)
+        linkImport.percent = if (videoId != null) 0f else null
+        // shortcut: conversion lives in the screen's coroutine; leaving the app for long may kill it — move to a foreground WorkManager job if that bites
         linkJob = scope.launch {
             try {
-                val id = runInterruptible(Dispatchers.IO) {
-                    downloadAudio(context, linkImport.url) { done, total ->
-                        linkImport.done = done
-                        linkImport.total = total
+                if (videoId != null) {
+                    val result = runInterruptible(Dispatchers.IO) {
+                        convertYoutube(context, videoId, linkImport.format) { linkImport.percent = it }
                     }
+                    if (result.isVideo) toast("บันทึกวิดีโอไว้ที่ Movies/SecretMelody แล้ว")
+                    else {
+                        reload++
+                        linkImport.resultId = result.id
+                    }
+                } else {
+                    val id = runInterruptible(Dispatchers.IO) {
+                        downloadAudio(context, linkImport.url) { done, total ->
+                            linkImport.done = done
+                            linkImport.total = total
+                        }
+                    }
+                    reload++
+                    linkImport.resultId = id
                 }
-                reload++
-                linkImport.resultId = id
                 linkImport.url = ""
             } catch (e: CancellationException) {
                 linkImport.error = "ยกเลิกแล้ว"

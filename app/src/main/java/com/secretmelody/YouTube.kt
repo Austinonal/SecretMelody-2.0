@@ -1,16 +1,45 @@
 package com.secretmelody
 
+import android.content.ContentUris
 import android.content.Context
+import android.graphics.Bitmap
+import android.provider.MediaStore
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import org.json.JSONObject
 import java.io.File
+import java.net.URLEncoder
 import java.util.UUID
 
 enum class YtFormat { MP3, MP4 }
 
-data class YtResult(val id: Long, val isVideo: Boolean)
+/** [key] is the saved file's name as Track.key spells it, so edits can be attached right away. */
+data class YtResult(val id: Long, val isVideo: Boolean, val key: String)
+
+/** What the link import card shows before converting. [thumb] is the full 16:9 picture the cover is cropped from. */
+class YtPreview(val title: String, val artist: String, val thumb: Bitmap?)
+
+/** Title and channel from YouTube's oEmbed JSON; auto-generated "Artist - Topic" channels lose the suffix. */
+fun parseOembed(json: String): Pair<String, String> {
+    val o = JSONObject(json)
+    return o.optString("title") to o.optString("author_name").removeSuffix(" - Topic")
+}
+
+/** Fast (no yt-dlp): title, channel and thumbnail for the card. Blocking; call on Dispatchers.IO. */
+fun youtubePreview(videoId: String): YtPreview {
+    val watch = URLEncoder.encode("https://www.youtube.com/watch?v=$videoId", "UTF-8")
+    val (title, artist) = parseOembed(String(httpGet("https://www.youtube.com/oembed?format=json&url=$watch"), Charsets.UTF_8))
+    // maxresdefault is missing on some videos; mqdefault always exists. Both are 16:9 without black bars.
+    val thumb = listOf("maxresdefault", "mqdefault").firstNotNullOfOrNull {
+        runCatching { downloadBitmap("https://i.ytimg.com/vi/$videoId/$it.jpg") }.getOrNull()
+    }
+    return YtPreview(title, artist, thumb)
+}
+
+/** The middle square of a picture, as the cover is before the user moves it. */
+fun centerSquare(b: Bitmap): Bitmap = cropBitmap(b, cropRect(b.width, b.height, 1000f, 1f, 0f, 0f))
 
 private const val MP3_MAX_MINUTES = 240
 private const val MP4_MAX_MINUTES = 30
@@ -30,6 +59,14 @@ fun checkDuration(seconds: Long?, format: YtFormat) {
 private val initLock = Any()
 private var ready = false
 
+/** MediaStore renames on a clash ("Song (1).mp3"), so read back the name it really used. */
+private fun savedName(context: Context, id: Long, video: Boolean): String? {
+    val base = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+    context.contentResolver.query(ContentUris.withAppendedId(base, id), arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+        ?.use { return if (it.moveToFirst()) it.getString(0) else null }
+    return null
+}
+
 /** First run unpacks Python and ffmpeg, which takes a while: never call on the main thread. */
 private fun initOnce(context: Context) = synchronized(initLock) {
     if (!ready) {
@@ -44,7 +81,7 @@ private fun initOnce(context: Context) = synchronized(initLock) {
  * MP3 into Music/SecretMelody (title and cover embedded), MP4 360p into Movies/SecretMelody.
  * Blocking: call it inside runInterruptible(Dispatchers.IO) so cancelling stops the conversion.
  */
-fun convertYoutube(context: Context, videoId: String, format: YtFormat, onProgress: (Float) -> Unit): YtResult {
+fun convertYoutube(context: Context, videoId: String, format: YtFormat, title: String?, onProgress: (Float) -> Unit): YtResult {
     initOnce(context)
     val ytdl = YoutubeDL.getInstance()
     // Only a URL rebuilt from the id reaches yt-dlp, so nothing else the user typed becomes an option.
@@ -94,10 +131,10 @@ fun convertYoutube(context: Context, videoId: String, format: YtFormat, onProgre
             }
         }
         val out = dir.listFiles()?.firstOrNull { it.extension == ext } ?: throw ImportException("แปลงไม่สำเร็จ ลองใหม่ภายหลัง")
-        val name = safeFileName(info.title.orEmpty()) + ".$ext"
+        val name = safeFileName(title?.takeIf { it.isNotBlank() } ?: info.title.orEmpty()) + ".$ext"
         val isVideo = format == YtFormat.MP4
         val id = saveToMusic(context, name, video = isVideo) { o -> out.inputStream().use { it.copyTo(o) } }
-        return YtResult(id, isVideo)
+        return YtResult(id, isVideo, savedName(context, id, isVideo)?.lowercase() ?: name.lowercase())
     } finally {
         dir.deleteRecursively()
     }

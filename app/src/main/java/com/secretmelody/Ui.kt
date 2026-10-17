@@ -80,6 +80,8 @@ import java.io.File
 import java.time.LocalTime
 import kotlin.random.Random
 
+private const val LINK_COVER = "<link import>" // coverKey while cropping the cover of a song not converted yet
+
 val Accent = Color(0xFFA77BFF)
 val Bg = Color(0xFF121212)
 val Surface2 = Color(0xFF242424)
@@ -314,11 +316,17 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
         linkJob = scope.launch {
             try {
                 if (videoId != null) {
+                    val preview = linkImport.takeIf { it.previewId == videoId }
                     val result = runInterruptible(Dispatchers.IO) {
-                        convertYoutube(context, videoId, linkImport.format) { linkImport.percent = it }
+                        convertYoutube(context, videoId, linkImport.format, preview?.title) { linkImport.percent = it }
                     }
                     if (result.isVideo) toast("บันทึกวิดีโอไว้ที่ Movies/SecretMelody แล้ว")
                     else {
+                        // The name, artist and cover chosen on the card, stored like any later edit.
+                        if (preview != null) {
+                            edits.setText(result.key, preview.title, preview.artist)
+                            preview.cover?.let { c -> withContext(Dispatchers.IO) { edits.setCover(result.key, c) } }
+                        }
                         reload++
                         linkImport.resultId = result.id
                     }
@@ -337,8 +345,8 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
                 linkImport.error = "ยกเลิกแล้ว"
             } catch (e: ImportException) {
                 linkImport.error = e.message
-            } catch (e: Exception) {
-                linkImport.error = "นำเข้าไม่สำเร็จ: ${e.message ?: "ไม่ทราบสาเหตุ"}"
+            } catch (e: Throwable) { // also Errors from the yt-dlp library, so a surprise shows here instead of closing the app
+                linkImport.error = "นำเข้าไม่สำเร็จ: ${e.message ?: e.javaClass.simpleName}"
             } finally {
                 linkImport.running = false
             }
@@ -494,7 +502,8 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
         } else {
             BackHandler { coverStage = ""; cropSource = null }
             CropScreen(source, onCancel = { coverStage = ""; cropSource = null }, onDone = { cropped ->
-                scope.launch {
+                if (key == LINK_COVER) linkImport.cover = cropped // not saved yet: applied when the song is converted
+                else scope.launch {
                     withContext(Dispatchers.IO) { edits.setCover(key, cropped) }
                     toast("เปลี่ยนปกแล้ว")
                 }
@@ -577,6 +586,13 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
                         onBack = { settingsPage = "" },
                         onImport = startLinkImport,
                         onCancel = { linkJob?.cancel() },
+                        onAdjustCover = {
+                            linkImport.thumb?.let {
+                                coverKey = LINK_COVER
+                                cropSource = it
+                                coverStage = "crop"
+                            }
+                        },
                         onPlay = { onPlay(listOf(it), 0) },
                         onEdit = { editingId = it.id },
                     )

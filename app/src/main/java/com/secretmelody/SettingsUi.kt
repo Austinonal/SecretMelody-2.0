@@ -1,5 +1,7 @@
 package com.secretmelody
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
@@ -26,6 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val Danger = Color(0xFFFF6B6B)
 
@@ -48,6 +53,13 @@ class LinkImportState {
     var resultId by mutableStateOf<Long?>(null)
     var format by mutableStateOf(YtFormat.MP3)
     var percent by mutableStateOf<Float?>(null) // null = a plain file download, shown in MB
+    // YouTube preview, editable before converting. previewId says which video it belongs to.
+    var previewId by mutableStateOf<String?>(null)
+    var previewLoading by mutableStateOf(false)
+    var title by mutableStateOf("")
+    var artist by mutableStateOf("")
+    var thumb by mutableStateOf<Bitmap?>(null)
+    var cover by mutableStateOf<Bitmap?>(null)
 }
 
 @Composable
@@ -249,8 +261,27 @@ fun LinkImportScreen(
     onCancel: () -> Unit,
     onPlay: (Track) -> Unit,
     onEdit: (Track) -> Unit,
+    onAdjustCover: () -> Unit = {},
 ) {
     val clipboard = LocalClipboardManager.current
+    val videoId = youtubeId(state.url)
+    LaunchedEffect(videoId) {
+        // Keep edits made before leaving to crop; refetch only if a fetch was cut off by leaving the screen.
+        if (videoId == null || (videoId == state.previewId && !state.previewLoading)) return@LaunchedEffect
+        state.previewId = videoId
+        state.title = ""; state.artist = ""; state.thumb = null; state.cover = null
+        state.previewLoading = true
+        val p = withContext(Dispatchers.IO) { runCatching { youtubePreview(videoId) }.getOrNull() }
+        if (state.previewId == videoId) {
+            if (p != null) {
+                state.title = p.title
+                state.artist = p.artist
+                state.thumb = p.thumb
+                state.cover = p.thumb?.let { withContext(Dispatchers.Default) { centerSquare(it) } }
+            }
+            state.previewLoading = false
+        }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PageHeader("นำเข้าจากลิงก์", onBack)
         Column(Modifier.padding(horizontal = 16.dp)) {
@@ -273,7 +304,47 @@ fun LinkImportScreen(
                 },
                 supportingText = { Text(state.error ?: "ลิงก์ไฟล์เสียงตรงๆ หรือลิงก์ YouTube ขึ้นต้นด้วย https://") },
             )
-            val youtube = youtubeId(state.url) != null
+            val youtube = videoId != null
+            if (youtube && state.previewLoading) {
+                Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Accent, strokeWidth = 2.dp)
+                    Text("กำลังโหลดชื่อเพลงและปก…", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 10.dp))
+                }
+            } else if (youtube && state.previewId == videoId && (state.title.isNotEmpty() || state.cover != null)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(Surface2).padding(12.dp),
+                ) {
+                    if (state.format == YtFormat.MP3) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                Modifier.size(96.dp).clip(RoundedCornerShape(6.dp)).background(Bg)
+                                    .clickable(enabled = !state.running && state.thumb != null, onClick = onAdjustCover),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                val c = state.cover
+                                if (c != null) Image(c.asImageBitmap(), "ปกเพลง", Modifier.fillMaxSize())
+                                else Icon(Icons.Default.MusicNote, null, tint = Muted)
+                            }
+                            if (state.thumb != null) {
+                                TextButton(onClick = onAdjustCover, enabled = !state.running) { Text("ปรับตำแหน่งปก", fontSize = 12.sp) }
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    Column(Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            state.title, { state.title = it }, label = { Text("ชื่อเพลง") },
+                            enabled = !state.running, modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (state.format == YtFormat.MP3) {
+                            OutlinedTextField(
+                                state.artist, { state.artist = it }, label = { Text("ศิลปิน") }, singleLine = true,
+                                enabled = !state.running, modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
             if (youtube) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                     YtFormat.entries.forEachIndexed { i, f ->

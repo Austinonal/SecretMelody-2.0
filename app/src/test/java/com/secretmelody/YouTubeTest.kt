@@ -55,6 +55,13 @@ class YouTubeTest {
         }
     }
 
+    @Test
+    fun oembedGivesTitleAndArtist() {
+        assertEquals("Song" to "Rick Astley", parseOembed("""{"title":"Song","author_name":"Rick Astley","type":"video"}"""))
+        assertEquals("เพลง" to "ศิลปิน", parseOembed("""{"title":"เพลง","author_name":"ศิลปิน - Topic"}"""))
+        assertEquals("" to "", parseOembed("{}"))
+    }
+
     private fun tooLong(block: () -> Unit) =
         assertTrue(assertThrows(ImportException::class.java) { block() }.message!!.startsWith("วิดีโอยาวเกินไป"))
 }

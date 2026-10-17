@@ -1,0 +1,56 @@
+feature,area,priority,original,clone,notes
+Sign up / log in with email,onboarding,must,yes,no,
+Sign in with Google,onboarding,must,yes,no,Facebook/phone optional
+Home feed with shelves of cards,home,must,yes,no,"start with recently played, new releases, your playlists"
+Quick-access grid on Home,home,must,yes,no,
+Search across tracks artists albums playlists,search,must,yes,no,
+Recent searches,search,must,yes,no,
+Browse by category/genre,search,must,yes,no,
+Artist page (popular tracks + discography),catalogue,must,yes,no,
+Album page,catalogue,must,yes,no,
+Play a track and continue through its context,playback,must,yes,no,album/playlist/artist context
+Full Now Playing screen with seek,playback,must,yes,no,
+Mini player on every screen,playback,must,yes,no,
+Shuffle and repeat (off / all / one),playback,must,yes,no,
+Queue: add / reorder / remove,playback,must,yes,no,
+Background playback + lock screen/notification controls,playback,must,yes,no,Media3 MediaSession
+Audio focus and headphone-unplug pause,playback,must,yes,no,
+Like a song (Liked Songs),library,must,yes,no,
+Your Library with type filters and sort,library,must,yes,no,
+Save album / follow artist,library,must,yes,no,
+Create / rename / delete playlist,playlists,must,yes,no,
+Add / remove / reorder playlist tracks,playlists,must,yes,no,
+Upload and manage own catalogue (artist/label admin),catalogue,must,no,no,"new for the clone: you are the source of the music, so you need an upload tool"
+Podcast show page and follow,podcasts,should,yes,no,
+Episode playback with resume position,podcasts,should,yes,no,
+Playback speed for episodes,podcasts,should,yes,no,
+Mark episode as played,podcasts,should,yes,no,
+Synced lyrics,playback,should,yes,no,"your own lyrics only, LRC format"
+Gapless playback,playback,should,yes,no,
+Crossfade,playback,should,yes,no,
+Audio quality setting,settings,should,yes,no,
+Sleep timer,playback,should,yes,no,
+Playlist cover image and description,playlists,should,yes,no,
+Share link to track/playlist,sharing,should,yes,no,
+Autoplay similar tracks when the queue ends,playback,should,yes,no,rule-based
+Download playlists/albums for offline,offline,could,yes,no,
+Offline mode with downloaded-only view,offline,could,yes,no,
+Download over cellular toggle and storage management,offline,could,yes,no,
+Sync likes/playlists made offline,offline,could,yes,no,
+Public profile with followers,social,could,yes,no,
+Follow other users,social,could,yes,no,
+Collaborative playlists,social,could,yes,no,
+Blend / Jam group sessions,social,could,yes,no,realtime
+Personalised recommendations (Made for you),recommendations,could,yes,no,"simple rules first, not ML"
+Year-in-review recap,recommendations,could,yes,no,
+Play on another device (Connect),devices,could,yes,no,realtime
+Free tier with ads and skip limits,monetisation,could,yes,no,only if you sell a subscription
+Premium subscription,monetisation,could,yes,no,Google Play Billing on Android
+Canvas (looping video on the player),playback,could,yes,no,
+Spotify licensed music catalogue,content,skip,yes,skip,licensed content belongs to labels/Spotify
+Editorial playlists by Spotify,content,skip,yes,skip,their content
+Audiobooks catalogue,content,skip,yes,skip,licensed content
+AI DJ voice,recommendations,skip,yes,skip,their voice/brand and models
+Spotify users and social graph,social,skip,yes,skip,their network
+Car/speaker/console Connect partners,devices,skip,yes,skip,hardware partner deals
+Spotify branding (name logo green Circular font),brand,skip,yes,skip,replaced in /replica-brand

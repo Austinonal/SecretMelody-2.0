@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Overrides Media3's default status-bar icon with the app glyph. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="56"
+    android:viewportHeight="56">
+    <group
+        android:translateX="-26"
+        android:translateY="-26.5">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M47,50 A11,11 0 1,1 46.99,50 Z M43.5,68 L50.5,68 L54,82 L40,82 Z M52,27 L58,27 L58,61 L52,61 Z M58,27 C64.5,30 72,34.5 72,45 C72,49 70.5,52 68,54 C69,47 64.5,42 58,41.5 Z" />
+    </group>
+</vector>

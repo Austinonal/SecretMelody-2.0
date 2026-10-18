@@ -318,15 +318,18 @@ fun App(
         linkImport.resultId = null
         linkImport.done = 0
         linkImport.total = 0
-        val videoId = youtubeId(linkImport.url)
+        val fromSpotify = spotifyTrackId(linkImport.url) != null
+        // A Spotify link converts the YouTube recording picked on the screen.
+        val videoId = youtubeId(linkImport.url) ?: linkImport.chosen.takeIf { fromSpotify }
         linkImport.percent = if (videoId != null) 0f else null
         // shortcut: conversion lives in the screen's coroutine; leaving the app for long may kill it — move to a foreground WorkManager job if that bites
         linkJob = scope.launch {
             try {
                 if (videoId != null) {
-                    val preview = linkImport.takeIf { it.previewId == videoId }
+                    val preview = linkImport.takeIf { it.previewId == previewKey(it.url) }
+                    val format = if (fromSpotify) YtFormat.MP3 else linkImport.format
                     val result = runInterruptible(Dispatchers.IO) {
-                        convertYoutube(context, videoId, linkImport.format, preview?.title) { linkImport.percent = it }
+                        convertYoutube(context, videoId, format, preview?.title) { linkImport.percent = it }
                     }
                     if (result.isVideo) toast("บันทึกวิดีโอไว้ที่ Movies/SecretMelody แล้ว")
                     else {

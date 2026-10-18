@@ -73,7 +73,7 @@ private fun savedName(context: Context, id: Long, video: Boolean): String? {
 }
 
 /** First run unpacks Python and ffmpeg, which takes a while: never call on the main thread. */
-private fun initOnce(context: Context) = synchronized(initLock) {
+internal fun initOnce(context: Context) = synchronized(initLock) {
     if (!ready) {
         YoutubeDL.getInstance().init(context.applicationContext)
         FFmpeg.getInstance().init(context.applicationContext)

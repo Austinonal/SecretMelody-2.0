@@ -29,7 +29,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
 private val Danger = Color(0xFFFF6B6B)
@@ -60,7 +63,16 @@ class LinkImportState {
     var artist by mutableStateOf("")
     var thumb by mutableStateOf<Bitmap?>(null)
     var cover by mutableStateOf<Bitmap?>(null)
+    // Spotify link: the song it names and the YouTube recordings that match it (null = not searched yet).
+    var spotify by mutableStateOf<SpotifyTrack?>(null)
+    var searching by mutableStateOf(false)
+    var candidates by mutableStateOf<List<YtCandidate>?>(null)
+    var chosen by mutableStateOf<String?>(null) // YouTube video id to convert
+    var searchError by mutableStateOf<String?>(null)
 }
+
+/** Which preview a link gets: the YouTube id, "sp:" + the Spotify id, or null for a plain file link. */
+fun previewKey(url: String): String? = youtubeId(url) ?: spotifyTrackId(url)?.let { "sp:$it" }
 
 @Composable
 private fun PageHeader(title: String, onBack: () -> Unit) {
@@ -122,7 +134,7 @@ fun SettingsScreen(
         )
         SectionLabel("นำเข้าเพลง")
         SettingRow(Icons.Default.FolderOpen, "เลือกไฟล์จากเครื่อง", "เลือกได้หลายไฟล์พร้อมกัน จาก Drive, แฟลชไดรฟ์ หรือโฟลเดอร์ในเครื่อง", enabled = !files.busy, onClick = onPickFiles)
-        SettingRow(Icons.Default.Link, "นำเข้าจากลิงก์", "วางลิงก์ไฟล์เสียง (.mp3, .m4a) หรือลิงก์ YouTube ที่คุณมีสิทธิ์ใช้", onClick = onOpenLink)
+        SettingRow(Icons.Default.Link, "นำเข้าจากลิงก์", "วางลิงก์ไฟล์เสียง (.mp3, .m4a), ลิงก์ YouTube หรือเพลงใน Spotify ที่คุณมีสิทธิ์ใช้", onClick = onOpenLink)
         files.text?.let { text ->
             Row(
                 Modifier
@@ -264,22 +276,53 @@ fun LinkImportScreen(
     onAdjustCover: () -> Unit = {},
 ) {
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val videoId = youtubeId(state.url)
-    LaunchedEffect(videoId) {
+    val spotifyId = spotifyTrackId(state.url)
+    val linkKey = previewKey(state.url)
+    var retry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(linkKey, retry) {
+        if (linkKey == null) return@LaunchedEffect
         // Keep edits made before leaving to crop; refetch only if a fetch was cut off by leaving the screen.
-        if (videoId == null || (videoId == state.previewId && !state.previewLoading)) return@LaunchedEffect
-        state.previewId = videoId
-        state.title = ""; state.artist = ""; state.thumb = null; state.cover = null
-        state.previewLoading = true
-        val p = withContext(Dispatchers.IO) { runCatching { youtubePreview(videoId) }.getOrNull() }
-        if (state.previewId == videoId) {
+        if (linkKey != state.previewId || state.previewLoading) {
+            state.previewId = linkKey
+            state.title = ""; state.artist = ""; state.thumb = null; state.cover = null
+            state.spotify = null; state.candidates = null; state.chosen = null; state.searchError = null
+            state.previewLoading = true
+            val p = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (videoId != null) youtubePreview(videoId)
+                    else spotifyTrack(spotifyId!!).let { t ->
+                        state.spotify = t
+                        YtPreview(t.title, t.artists.joinToString(", "), t.coverUrl?.let { runCatching { downloadBitmap(it) }.getOrNull() })
+                    }
+                }.getOrNull()
+            }
+            if (state.previewId != linkKey) return@LaunchedEffect
             if (p != null) {
                 state.title = p.title
                 state.artist = p.artist
                 state.thumb = p.thumb
                 state.cover = p.thumb?.let { withContext(Dispatchers.Default) { centerSquare(it) } }
-            }
+            } else if (spotifyId != null) state.searchError = "อ่านข้อมูลเพลงจาก Spotify ไม่ได้ ตรวจสอบอินเทอร์เน็ตหรือลิงก์"
             state.previewLoading = false
+        }
+        val track = state.spotify
+        if (spotifyId != null && track != null && state.candidates == null) {
+            state.searching = true
+            try {
+                val found = runInterruptible(Dispatchers.IO) { findOnYoutube(context, track) }
+                if (state.previewId == linkKey) {
+                    state.candidates = found
+                    state.chosen = found.firstOrNull()?.id
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                state.searchError = (e as? ImportException)?.message ?: "ค้นหาเพลงบน YouTube ไม่ได้: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                state.searching = false // left mid-search: candidates stay null, so coming back searches again
+            }
         }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -302,19 +345,20 @@ fun LinkImportScreen(
                         enabled = !state.running,
                     ) { Icon(Icons.Default.ContentPaste, "วางจากคลิปบอร์ด") }
                 },
-                supportingText = { Text(state.error ?: "ลิงก์ไฟล์เสียงตรงๆ หรือลิงก์ YouTube ขึ้นต้นด้วย https://") },
+                supportingText = { Text(state.error ?: "ลิงก์ไฟล์เสียงตรงๆ, YouTube หรือเพลงใน Spotify ขึ้นต้นด้วย https://") },
             )
             val youtube = videoId != null
-            if (youtube && state.previewLoading) {
+            val mp3 = spotifyId != null || state.format == YtFormat.MP3 // Spotify songs always become MP3
+            if (linkKey != null && state.previewLoading) {
                 Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), color = Accent, strokeWidth = 2.dp)
                     Text("กำลังโหลดชื่อเพลงและปก…", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 10.dp))
                 }
-            } else if (youtube && state.previewId == videoId && (state.title.isNotEmpty() || state.cover != null)) {
+            } else if (linkKey != null && state.previewId == linkKey && (state.title.isNotEmpty() || state.cover != null)) {
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(Surface2).padding(12.dp),
                 ) {
-                    if (state.format == YtFormat.MP3) {
+                    if (mp3) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(
                                 Modifier.size(96.dp).clip(RoundedCornerShape(6.dp)).background(Bg)
@@ -336,7 +380,7 @@ fun LinkImportScreen(
                             state.title, { state.title = it }, label = { Text("ชื่อเพลง") },
                             enabled = !state.running, modifier = Modifier.fillMaxWidth(),
                         )
-                        if (state.format == YtFormat.MP3) {
+                        if (mp3) {
                             OutlinedTextField(
                                 state.artist, { state.artist = it }, label = { Text("ศิลปิน") }, singleLine = true,
                                 enabled = !state.running, modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -345,6 +389,7 @@ fun LinkImportScreen(
                     }
                 }
             }
+            if (spotifyId != null) SpotifyMatches(state, onRetry = { state.searchError = null; retry++ })
             if (youtube) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                     YtFormat.entries.forEachIndexed { i, f ->
@@ -380,10 +425,10 @@ fun LinkImportScreen(
             } else {
                 Button(
                     onClick = onImport,
-                    enabled = state.url.isNotBlank(),
+                    enabled = state.url.isNotBlank() && (spotifyId == null || state.chosen != null),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
-                ) { Text(if (youtube) "แปลง" else "นำเข้า", fontWeight = FontWeight.Bold) }
+                ) { Text(if (linkKey != null) "แปลง" else "นำเข้า", fontWeight = FontWeight.Bold) }
             }
             imported?.let { t ->
                 Spacer(Modifier.height(20.dp))
@@ -409,9 +454,53 @@ fun LinkImportScreen(
             }
             Text(
                 "ใช้ได้กับไฟล์ที่คุณมีสิทธิ์ เช่น เพลงของคุณเอง ลิงก์แชร์จาก Google Drive ของคุณ หรือเพลงที่เจ้าของอนุญาตให้ดาวน์โหลด" +
-                    "\nลิงก์ YouTube แปลงเป็น MP3 (ไม่เกิน 240 นาที) หรือ MP4 360p (ไม่เกิน 30 นาที) ได้ ส่วน TikTok, Spotify และหน้าเว็บทั่วไปยังใช้ไม่ได้",
+                    "\nลิงก์ YouTube แปลงเป็น MP3 (ไม่เกิน 240 นาที) หรือ MP4 360p (ไม่เกิน 30 นาที) ได้" +
+                    "\nลิงก์เพลงจาก Spotify: แอปหาเพลงเดียวกันบน YouTube ให้เลือก แล้วแปลงเป็น MP3 (เสียงมาจาก YouTube ไม่ใช่ Spotify)" +
+                    "\nTikTok และหน้าเว็บทั่วไปยังใช้ไม่ได้",
                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 24.dp, bottom = 24.dp),
             )
+        }
+    }
+}
+
+/** The YouTube recordings found for a Spotify song, best first; the user can pick another before converting. */
+@Composable
+private fun SpotifyMatches(state: LinkImportState, onRetry: () -> Unit) {
+    val found = state.candidates
+    when {
+        state.searching -> Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(18.dp), color = Accent, strokeWidth = 2.dp)
+            Text(
+                "กำลังหาเพลงนี้บน YouTube… (ครั้งแรกแอปต้องเตรียมตัวแปลงก่อน อาจนานเป็นนาที)",
+                color = Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 10.dp),
+            )
+        }
+        state.searchError != null -> Column(Modifier.padding(vertical = 8.dp)) {
+            Text(state.searchError!!, color = Danger, fontSize = 13.sp)
+            if (state.spotify != null) OutlinedButton(onClick = onRetry, Modifier.padding(top = 4.dp)) { Text("ลองใหม่") }
+        }
+        found != null && found.isEmpty() -> Text(
+            "ไม่เจอเพลงนี้บน YouTube ที่ชื่อ ศิลปิน และความยาวตรงกัน ลองหาคลิปเองแล้ววางลิงก์ YouTube แทน",
+            color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 8.dp),
+        )
+        found != null -> Column(Modifier.padding(vertical = 4.dp)) {
+            Text("เลือกคลิปที่จะใช้เสียง (เรียงจากตรงที่สุด)", color = Muted, fontSize = 13.sp)
+            found.take(3).forEach { c ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = !state.running) { state.chosen = c.id }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = state.chosen == c.id, onClick = { state.chosen = c.id }, enabled = !state.running)
+                    Column(Modifier.weight(1f)) {
+                        Text(c.title, color = Color.White, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            listOfNotNull(c.channel.ifBlank { null }, c.durationSec?.let { formatTime((it * 1000).toLong()) }).joinToString(" · "),
+                            color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }

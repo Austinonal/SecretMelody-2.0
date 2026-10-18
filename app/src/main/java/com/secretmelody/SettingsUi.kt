@@ -333,7 +333,7 @@ fun LinkImportScreen(
                 value = state.url,
                 onValueChange = { state.url = it; state.error = null },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("ลิงก์ไฟล์เสียง") },
+                label = { Text("ลิงก์เพลง") },
                 placeholder = { Text("https://…/เพลง.mp3") },
                 singleLine = true,
                 enabled = !state.running,

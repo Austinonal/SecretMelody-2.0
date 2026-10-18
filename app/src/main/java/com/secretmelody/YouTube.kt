@@ -86,7 +86,15 @@ internal fun initOnce(context: Context) = synchronized(initLock) {
  * MP3 into Music/SecretMelody (title and cover embedded), MP4 360p into Movies/SecretMelody.
  * Blocking: call it inside runInterruptible(Dispatchers.IO) so cancelling stops the conversion.
  */
-fun convertYoutube(context: Context, videoId: String, format: YtFormat, title: String?, onProgress: (Float) -> Unit): YtResult {
+fun convertYoutube(
+    context: Context,
+    videoId: String,
+    format: YtFormat,
+    title: String?,
+    durationSec: Double? = null,
+    embedCover: Boolean = true,
+    onProgress: (Float) -> Unit,
+): YtResult {
     initOnce(context)
     val ytdl = YoutubeDL.getInstance()
     // Only a URL rebuilt from the id reaches yt-dlp, so nothing else the user typed becomes an option.
@@ -104,8 +112,14 @@ fun convertYoutube(context: Context, videoId: String, format: YtFormat, title: S
         return try { block() } catch (e: YoutubeDLException) { throw ImportException(message) }
     }
 
-    val info = withUpdate("วิดีโอนี้แปลงไม่ได้") { ytdl.getInfo(YoutubeDLRequest(url).addOption("--no-playlist")) }
-    checkDuration(info.duration.toLong(), format)
+    // Title and length already known (a Spotify match): skip the metadata run, a whole extra yt-dlp (python) start.
+    val known = title?.takeIf { it.isNotBlank() && durationSec != null }
+    val ytTitle = known ?: run {
+        val info = withUpdate("วิดีโอนี้แปลงไม่ได้") { ytdl.getInfo(YoutubeDLRequest(url).addOption("--no-playlist")) }
+        checkDuration(info.duration.toLong(), format)
+        info.title.orEmpty()
+    }
+    if (known != null) checkDuration(durationSec!!.toLong(), format)
     val ext = if (format == YtFormat.MP3) "mp3" else "mp4"
     val dir = File(context.cacheDir, "yt/$videoId").apply { deleteRecursively(); mkdirs() }
     try {
@@ -118,8 +132,10 @@ fun convertYoutube(context: Context, videoId: String, format: YtFormat, title: S
                 addOption("--audio-format", "mp3")
                 addOption("--audio-quality", "192K")
                 addOption("--embed-metadata")
-                addOption("--embed-thumbnail") // the cover the library shows
-                addOption("--convert-thumbnails", "jpg")
+                if (embedCover) { // skipped when the app stores its own cover: saves a download and two ffmpeg passes
+                    addOption("--embed-thumbnail")
+                    addOption("--convert-thumbnails", "jpg")
+                }
             } else {
                 addOption("-f", "bv*[height<=360][ext=mp4]+ba[ext=m4a]/b[height<=360][ext=mp4]/b[height<=360]")
                 addOption("--merge-output-format", "mp4")
@@ -136,7 +152,7 @@ fun convertYoutube(context: Context, videoId: String, format: YtFormat, title: S
             }
         }
         val out = dir.listFiles()?.firstOrNull { it.extension == ext } ?: throw ImportException("แปลงไม่สำเร็จ ลองใหม่ภายหลัง")
-        val name = safeFileName(title?.takeIf { it.isNotBlank() } ?: info.title.orEmpty()) + ".$ext"
+        val name = safeFileName(title?.takeIf { it.isNotBlank() } ?: ytTitle) + ".$ext"
         val isVideo = format == YtFormat.MP4
         val id = saveToMusic(context, name, video = isVideo) { o -> out.inputStream().use { it.copyTo(o) } }
         return YtResult(id, isVideo, savedName(context, id, isVideo)?.lowercase() ?: name.lowercase())

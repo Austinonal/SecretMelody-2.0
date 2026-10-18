@@ -173,16 +173,15 @@ fun App(
     }
 
     val library = remember { Library(File(context.filesDir, "library.json")) }
-    val edits = remember { Edits(File(context.filesDir, "edits.json"), File(context.filesDir, "covers")) }
+    val edits = remember { Convert.edits(context) }
     val scope = rememberCoroutineScope()
     var reload by remember { mutableIntStateOf(0) } // bump after importing or deleting files
-    val tracks by produceState<List<Track>?>(null, startTick, reload) {
+    val tracks by produceState<List<Track>?>(null, startTick, reload, Convert.reload) {
         value = withContext(Dispatchers.IO) { loadTracks(context) }
     }
     var settingsPage by rememberSaveable { mutableStateOf("") } // "", "link", "storage" or "guide"
     val fileImport = remember { FileImportState() }
-    val linkImport = remember { LinkImportState() }
-    var linkJob by remember { mutableStateOf<Job?>(null) }
+    val linkImport = Convert.state // outlives this screen, so a conversion keeps going when the app is closed
     var editingId by rememberSaveable { mutableStateOf<Long?>(null) }
     var coverKey by rememberSaveable { mutableStateOf<String?>(null) } // song whose cover is being changed
     var coverStage by rememberSaveable { mutableStateOf("") } // "", "search" or "crop"
@@ -312,90 +311,7 @@ fun App(
             onIncomingHandled()
         }
     }
-    val startLinkImport: () -> Unit = {
-        linkImport.running = true
-        linkImport.error = null
-        linkImport.resultId = null
-        linkImport.done = 0
-        linkImport.total = 0
-        linkImport.batchResult = null
-        linkImport.batchTotal = 0
-        val batch = linkImport.list?.takeIf { spotifyListPath(linkImport.url) == linkImport.listFor }
-            ?.items?.filter { it.id in linkImport.picked }
-        val fromSpotify = spotifyTrackId(linkImport.url) != null
-        // A Spotify link converts the YouTube recording picked on the screen.
-        val videoId = youtubeId(linkImport.url) ?: linkImport.chosen.takeIf { fromSpotify }
-        linkImport.percent = if (videoId != null || batch != null) 0f else null
-        // shortcut: conversion lives in the screen's coroutine; leaving the app for long may kill it — move to a foreground WorkManager job if that bites
-        linkJob = scope.launch {
-            try {
-                if (batch != null) {
-                    // Each song goes the single-Spotify-song way: its own page, the best YouTube match, MP3, then its edits.
-                    val failed = mutableListOf<String>()
-                    linkImport.batchTotal = batch.size
-                    batch.forEachIndexed { i, item ->
-                        linkImport.batchIndex = i
-                        linkImport.batchTitle = item.title
-                        linkImport.percent = 0f
-                        try {
-                            val t = runInterruptible(Dispatchers.IO) { spotifyTrack(item.id) }
-                            val best = runInterruptible(Dispatchers.IO) { findOnYoutube(context, t) }.firstOrNull()
-                                ?: throw ImportException("ไม่เจอบน YouTube")
-                            val r = runInterruptible(Dispatchers.IO) {
-                                convertYoutube(context, best.id, YtFormat.MP3, t.title) { linkImport.percent = it }
-                            }
-                            edits.setText(r.key, t.title, t.artists.joinToString(", "))
-                            withContext(Dispatchers.IO) {
-                                t.coverUrl?.let { u -> runCatching { downloadBitmap(u) }.getOrNull() }?.let { edits.setCover(r.key, centerSquare(it)) }
-                            }
-                            reload++
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Throwable) {
-                            failed += item.title // one bad song shouldn't stop the rest
-                        }
-                    }
-                    linkImport.batchResult = "แปลงเสร็จ ${batch.size - failed.size} จาก ${batch.size} เพลง" +
-                        if (failed.isEmpty()) "" else "\nไม่สำเร็จ: ${failed.joinToString(", ")}"
-                    linkImport.batchTotal = 0
-                } else if (videoId != null) {
-                    val preview = linkImport.takeIf { it.previewId == previewKey(it.url) }
-                    val format = if (fromSpotify) YtFormat.MP3 else linkImport.format
-                    val result = runInterruptible(Dispatchers.IO) {
-                        convertYoutube(context, videoId, format, preview?.title) { linkImport.percent = it }
-                    }
-                    if (result.isVideo) toast("บันทึกวิดีโอไว้ที่ Movies/SecretMelody แล้ว")
-                    else {
-                        // The name, artist and cover chosen on the card, stored like any later edit.
-                        if (preview != null) {
-                            edits.setText(result.key, preview.title, preview.artist)
-                            preview.cover?.let { c -> withContext(Dispatchers.IO) { edits.setCover(result.key, c) } }
-                        }
-                        reload++
-                        linkImport.resultId = result.id
-                    }
-                } else {
-                    val id = runInterruptible(Dispatchers.IO) {
-                        downloadAudio(context, linkImport.url) { done, total ->
-                            linkImport.done = done
-                            linkImport.total = total
-                        }
-                    }
-                    reload++
-                    linkImport.resultId = id
-                }
-                linkImport.url = ""
-            } catch (e: CancellationException) {
-                linkImport.error = "ยกเลิกแล้ว"
-            } catch (e: ImportException) {
-                linkImport.error = e.message
-            } catch (e: Throwable) { // also Errors from the yt-dlp library, so a surprise shows here instead of closing the app
-                linkImport.error = "นำเข้าไม่สำเร็จ: ${e.message ?: e.javaClass.simpleName}"
-            } finally {
-                linkImport.running = false
-            }
-        }
-    }
+    val startLinkImport: () -> Unit = { Convert.start(context) }
     LaunchedEffect(sharedLink) {
         val text = sharedLink ?: return@LaunchedEffect
         onSharedLinkHandled()
@@ -645,7 +561,7 @@ fun App(
                         linkImport, imported = linkImport.resultId?.let { byId[it] },
                         onBack = { settingsPage = "" },
                         onImport = startLinkImport,
-                        onCancel = { linkJob?.cancel() },
+                        onCancel = { Convert.cancel() },
                         onAdjustCover = {
                             linkImport.thumb?.let {
                                 coverKey = LINK_COVER

@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -66,11 +67,17 @@ object Convert {
                 if (batch != null) {
                     // Each song goes the single-Spotify-song way: its own page, the best YouTube match, MP3, then its edits.
                     val failed = mutableListOf<String>()
+                    var skipped = 0
                     state.batchTotal = batch.size
                     batch.forEachIndexed { i, item ->
                         state.batchIndex = i
                         state.batchTitle = item.title
                         state.percent = 0f
+                        // Checked before any download or search, so re-running an album costs next to nothing.
+                        if (withContext(Dispatchers.IO) { alreadyHave(app, edits, item) }) {
+                            skipped++
+                            return@forEachIndexed
+                        }
                         try {
                             val t = runInterruptible(Dispatchers.IO) { spotifyTrack(item.id) }
                             val best = runInterruptible(Dispatchers.IO) { findOnYoutube(app, t) }.firstOrNull()
@@ -88,8 +95,7 @@ object Convert {
                             failed += item.title // one bad song shouldn't stop the rest
                         }
                     }
-                    state.batchResult = "แปลงเสร็จ ${batch.size - failed.size} จาก ${batch.size} เพลง" +
-                        if (failed.isEmpty()) "" else "\nไม่สำเร็จ: ${failed.joinToString(", ")}"
+                    state.batchResult = batchSummary(batch.size, skipped, failed)
                     state.batchTotal = 0
                 } else if (videoId != null) {
                     val preview = state.takeIf { it.previewId == previewKey(it.url) }
@@ -131,6 +137,19 @@ object Convert {
         }
     }
 
+    /**
+     * Same file name the conversion would give it ("title.mp3") and, if the app saved an artist for that file, the same
+     * artist: so a second "Intro" from another album is still converted.
+     */
+    private fun alreadyHave(context: Context, edits: Edits, item: SpotifyListItem): Boolean {
+        val name = safeFileName(item.title) + ".mp3"
+        val found = context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, arrayOf(MediaStore.Audio.Media._ID),
+            "${MediaStore.Audio.Media.DISPLAY_NAME} = ? COLLATE NOCASE", arrayOf(name), null,
+        )?.use { it.count > 0 } ?: false
+        return found && sameArtist(edits.map[name.lowercase()]?.artist, item.artists)
+    }
+
     /** One line for the notification. */
     fun progressText(): String {
         val s = state
@@ -138,6 +157,14 @@ object Convert {
         return if (s.batchTotal > 0) "เพลงที่ ${s.batchIndex + 1}/${s.batchTotal}: ${s.batchTitle}$p" else "กำลังแปลง$p"
     }
 }
+
+/** null saved artist = the file came from elsewhere, so the name alone decides. */
+fun sameArtist(saved: String?, artists: String) = saved == null || saved.trim().equals(artists.trim(), ignoreCase = true)
+
+fun batchSummary(total: Int, skipped: Int, failed: List<String>): String =
+    "แปลงเสร็จ ${total - skipped - failed.size} จาก $total เพลง" +
+        (if (skipped > 0) "\nข้าม $skipped เพลงที่มีอยู่แล้ว" else "") +
+        (if (failed.isEmpty()) "" else "\nไม่สำเร็จ: ${failed.joinToString(", ")}")
 
 private fun toast(context: Context, text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 

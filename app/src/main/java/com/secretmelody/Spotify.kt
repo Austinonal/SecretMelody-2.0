@@ -61,6 +61,13 @@ fun parseSpotifyList(html: String): SpotifyList {
 fun spotifyList(path: String): SpotifyList =
     parseSpotifyList(String(httpGet("https://open.spotify.com/embed/$path"), Charsets.UTF_8))
 
+/** A short share link (spotify.link/…, spotify.app.link/…) the Spotify app sometimes gives; null = not one. */
+fun spotifyShortLink(raw: String): String? = Regex("""https://spotify\.(?:app\.)?link/[A-Za-z0-9_-]+""").find(raw)?.value
+
+/** The real open.spotify.com link a short link leads to: the page it redirects to names it. Blocking; call on IO. */
+fun resolveSpotifyShortLink(url: String): String? = Regex("""open\.spotify\.com/(?:track|album|playlist|artist)/[A-Za-z0-9]{22}""")
+    .find(String(httpGet(url), Charsets.UTF_8))?.value?.let { "https://$it" }
+
 class YtCandidate(val id: String, val title: String, val channel: String, val durationSec: Double?)
 
 // Matching rules ported from spotDL (MIT, https://github.com/spotDL/spotify-downloader, spotdl/utils/matching.py).

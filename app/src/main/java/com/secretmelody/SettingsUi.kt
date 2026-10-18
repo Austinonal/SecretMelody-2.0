@@ -290,6 +290,14 @@ fun LinkImportScreen(
     val spotifyId = spotifyTrackId(state.url)
     val linkKey = previewKey(state.url)
     val listPath = spotifyListPath(state.url)
+    val shortLink = spotifyShortLink(state.url)
+    LaunchedEffect(shortLink) {
+        if (shortLink == null) return@LaunchedEffect
+        val real = withContext(Dispatchers.IO) { runCatching { resolveSpotifyShortLink(shortLink) }.getOrNull() }
+        if (spotifyShortLink(state.url) != shortLink) return@LaunchedEffect // the field changed meanwhile
+        if (real != null) state.url = real // the track / list effects take it from here
+        else state.error = "เปิดลิงก์สั้นของ Spotify ไม่ได้ ลองคัดลอกลิงก์จากแอป Spotify ใหม่"
+    }
     LaunchedEffect(listPath) {
         if (listPath == null || (listPath == state.listFor && state.list != null)) return@LaunchedEffect
         state.listFor = listPath
@@ -414,6 +422,12 @@ fun LinkImportScreen(
                     }
                 }
             }
+            if (shortLink != null && state.error == null) {
+                Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Accent, strokeWidth = 2.dp)
+                    Text("กำลังเปิดลิงก์ Spotify…", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 10.dp))
+                }
+            }
             if (spotifyId != null) SpotifyMatches(state, onRetry = { state.searchError = null; retry++ })
             state.batchResult?.let { Text(it, color = Accent, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
             if (youtube) {
@@ -453,7 +467,7 @@ fun LinkImportScreen(
             } else {
                 Button(
                     onClick = onImport,
-                    enabled = state.url.isNotBlank() && (spotifyId == null || state.chosen != null) &&
+                    enabled = state.url.isNotBlank() && shortLink == null && (spotifyId == null || state.chosen != null) &&
                         (listPath == null || (state.listFor == listPath && state.list != null && state.picked.isNotEmpty())),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),

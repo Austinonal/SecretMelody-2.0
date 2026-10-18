@@ -32,6 +32,27 @@ class SpotifyTest {
     }
 
     @Test
+    fun spotifyShortLinks() {
+        assertEquals("https://spotify.link/8JnKrNFWLob", spotifyShortLink("ฟังนี่ https://spotify.link/8JnKrNFWLob"))
+        assertEquals("https://spotify.app.link/8JnKrNFWLob", spotifyShortLink("https://spotify.app.link/8JnKrNFWLob?_p=c1"))
+        assertNull(spotifyShortLink("https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"))
+        assertNull(spotifyShortLink("http://spotify.link/8JnKrNFWLob"))
+    }
+
+    @Test
+    fun alreadyHaveNeedsTheSameArtist() {
+        assertEquals(true, sameArtist("Olivia Rodrigo, Chappell Roan", "olivia rodrigo, chappell roan "))
+        assertEquals(true, sameArtist(null, "Anyone")) // file from elsewhere: the name decides
+        assertEquals(false, sameArtist("Three Man Down", "Bodyslam")) // another song with the same title
+    }
+
+    @Test
+    fun batchSummaryMentionsSkippedAndFailed() {
+        assertEquals("แปลงเสร็จ 10 จาก 10 เพลง", batchSummary(10, 0, emptyList()))
+        assertEquals("แปลงเสร็จ 6 จาก 10 เพลง\nข้าม 3 เพลงที่มีอยู่แล้ว\nไม่สำเร็จ: Loser", batchSummary(10, 3, listOf("Loser")))
+    }
+
+    @Test
     fun embedPageListsTheSongs() {
         // Same shape as open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M, trimmed.
         val html = """<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"state":{"data":{"entity":

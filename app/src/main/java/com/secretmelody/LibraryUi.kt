@@ -43,7 +43,7 @@ fun GroupCover(g: TrackGroup, modifier: Modifier, px: Int = 300) {
     val shape = if (g.isArtist) CircleShape else RoundedCornerShape(4.dp)
     when {
         g.playlistId == LIKED_ID -> Box(
-            modifier.clip(shape).background(Brush.linearGradient(listOf(Color(0xFF4A2BB5), Accent))),
+            modifier.clip(shape).background(Brush.linearGradient(listOf(Color(0xFF6E1530), Accent))),
             contentAlignment = Alignment.Center,
         ) {
             Icon(Icons.Default.Favorite, null, tint = Color.White, modifier = Modifier.fillMaxSize(0.4f))
@@ -99,7 +99,7 @@ fun LibraryScreen(
                     border = null,
                     colors = FilterChipDefaults.filterChipColors(
                         containerColor = Surface2, labelColor = Color.White,
-                        selectedContainerColor = Accent, selectedLabelColor = Color.Black,
+                        selectedContainerColor = Accent, selectedLabelColor = Color.White,
                     ),
                 )
             }
@@ -115,7 +115,7 @@ fun LibraryScreen(
                             Spacer(Modifier.height(12.dp))
                             Button(
                                 onClick = onCreate,
-                                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
+                                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
                             ) { Text("สร้างเพลย์ลิสต์", fontWeight = FontWeight.Bold) }
                         }
                     }
@@ -229,7 +229,7 @@ private fun QueueRow(
         }
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(
-                title, color = if (playing) Accent else Color.White, fontSize = 15.sp,
+                title, color = if (playing) AccentText else Color.White, fontSize = 15.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Text(artist, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

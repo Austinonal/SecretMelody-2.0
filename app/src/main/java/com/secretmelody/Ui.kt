@@ -83,13 +83,16 @@ import kotlin.random.Random
 
 private const val LINK_COVER = "<link import>" // coverKey while cropping the cover of a song not converted yet
 
-val Accent = Color(0xFFA77BFF)
+// Viva Magenta (Pantone 18-1750). Too dark for small text on Bg (3.1:1), so text and icons use the lighter AccentText
+// (5.7:1); fills use Accent with white on top (6.0:1; black would be 3.5:1).
+val Accent = Color(0xFFBB2649)
+val AccentText = Color(0xFFE8607F)
 val Bg = Color(0xFF121212)
 val Surface2 = Color(0xFF242424)
 val Muted = Color(0xFFB3B3B3)
 private val Tile = Color(0xFF2A2A2A)
 private val TileColors = listOf(
-    Color(0xFF8E3FD6), Color(0xFFD6336C), Color(0xFF1E7A5A), Color(0xFF2F5BD3),
+    Color(0xFFBB2649), Color(0xFFD6336C), Color(0xFF1E7A5A), Color(0xFF2F5BD3),
     Color(0xFFC2521B), Color(0xFF4F6B7F), Color(0xFF8A2F5E), Color(0xFF4A7A2F),
 )
 
@@ -914,7 +917,7 @@ private fun CollectionScreen(
                         Spacer(Modifier.height(16.dp))
                         Button(
                             onClick = onFindSongs,
-                            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
                         ) { Text("หาเพลง", fontWeight = FontWeight.Bold) }
                     }
                 }
@@ -955,7 +958,7 @@ private fun PlayButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.v
         onClick = onClick,
         modifier = Modifier.size(52.dp).clip(CircleShape).background(Accent),
     ) {
-        Icon(icon, label, tint = Color.Black, modifier = Modifier.size(28.dp))
+        Icon(icon, label, tint = Color.White, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -1082,12 +1085,12 @@ private fun TrackRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (playing) {
                     Icon(
-                        Icons.Default.GraphicEq, "กำลังเล่น", tint = Accent,
+                        Icons.Default.GraphicEq, "กำลังเล่น", tint = AccentText,
                         modifier = Modifier.padding(end = 4.dp).size(16.dp),
                     )
                 }
                 Text(
-                    t.title, color = if (playing) Accent else Color.White, fontSize = 16.sp,
+                    t.title, color = if (playing) AccentText else Color.White, fontSize = 16.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -1096,7 +1099,7 @@ private fun TrackRow(
         if (trailing != null) {
             trailing()
         } else {
-            if (liked) Icon(Icons.Default.Favorite, "ถูกใจแล้ว", tint = Accent, modifier = Modifier.size(18.dp))
+            if (liked) Icon(Icons.Default.Favorite, "ถูกใจแล้ว", tint = AccentText, modifier = Modifier.size(18.dp))
             Box {
                 IconButton(onClick = { menu = true }) {
                     Icon(Icons.Default.MoreVert, "ตัวเลือกของ ${t.title}", tint = Muted)
@@ -1129,7 +1132,7 @@ private fun LikeButton(liked: Boolean, onLike: () -> Unit, size: Int = 24) {
         Icon(
             if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
             if (liked) "ลบออกจากเพลงที่ถูกใจ" else "เพิ่มลงเพลงที่ถูกใจ",
-            tint = if (liked) Accent else Color.White,
+            tint = if (liked) AccentText else Color.White,
             modifier = Modifier.size(size.dp),
         )
     }
@@ -1262,7 +1265,7 @@ private fun NowPlaying(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { player.shuffleModeEnabled = !ui.shuffle }) {
-                Icon(Icons.Default.Shuffle, if (ui.shuffle) "ปิดการสุ่ม" else "สุ่ม", tint = if (ui.shuffle) Accent else Color.White)
+                Icon(Icons.Default.Shuffle, if (ui.shuffle) "ปิดการสุ่ม" else "สุ่ม", tint = if (ui.shuffle) AccentText else Color.White)
             }
             IconButton(onClick = { player.seekToPrevious() }, modifier = Modifier.size(56.dp)) {
                 Icon(Icons.Default.SkipPrevious, "เพลงก่อนหน้า", tint = Color.White, modifier = Modifier.size(36.dp))
@@ -1290,7 +1293,7 @@ private fun NowPlaying(
                 Icon(
                     if (ui.repeat == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
                     "เล่นซ้ำ",
-                    tint = if (ui.repeat == Player.REPEAT_MODE_OFF) Color.White else Accent,
+                    tint = if (ui.repeat == Player.REPEAT_MODE_OFF) Color.White else AccentText,
                 )
             }
         }
@@ -1303,9 +1306,9 @@ private fun NowPlaying(
                 else -> null
             }
             IconButton(onClick = onSleep) {
-                Icon(Icons.Default.Bedtime, "ตั้งเวลาปิดเพลง", tint = if (label != null) Accent else Color.White)
+                Icon(Icons.Default.Bedtime, "ตั้งเวลาปิดเพลง", tint = if (label != null) AccentText else Color.White)
             }
-            if (label != null) Text(label, color = Accent, fontSize = 13.sp)
+            if (label != null) Text(label, color = AccentText, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             // Speed and pitch move together, like the slowed / nightcore versions people upload.
             listOf(0.8f to "Slowed", 1f to "ปกติ", 1.25f to "Nightcore").forEach { (s, name) ->
@@ -1313,7 +1316,7 @@ private fun NowPlaying(
                 TextButton(
                     onClick = { player.playbackParameters = PlaybackParameters(s, s) },
                     contentPadding = PaddingValues(horizontal = 8.dp),
-                ) { Text(name, color = if (on) Accent else Muted, fontSize = 13.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal) }
+                ) { Text(name, color = if (on) AccentText else Muted, fontSize = 13.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal) }
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onQueue) {
@@ -1363,14 +1366,14 @@ private fun PermissionScreen(onAsk: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Default.MusicNote, null, tint = Accent, modifier = Modifier.size(64.dp))
+        Icon(Icons.Default.MusicNote, null, tint = AccentText, modifier = Modifier.size(64.dp))
         Spacer(Modifier.height(16.dp))
         Text(
             "SecretMelody ต้องขอสิทธิ์อ่านไฟล์เพลงในเครื่องของคุณ", color = Color.White,
             textAlign = TextAlign.Center, fontSize = 16.sp,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onAsk, colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black)) {
+        Button(onClick = onAsk, colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White)) {
             Text("อนุญาต", fontWeight = FontWeight.Bold)
         }
         TextButton(onClick = {

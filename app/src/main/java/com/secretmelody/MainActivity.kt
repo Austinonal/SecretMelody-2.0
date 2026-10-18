@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -37,7 +38,7 @@ class MainActivity : ComponentActivity() {
             sharedLink = sharedText(intent)
         }
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Surface2)) {
+            MaterialTheme(colorScheme = darkColorScheme(primary = AccentText, onPrimary = Color.Black, background = Bg, surface = Surface2)) {
                 App(
                     controller, startTick, incoming, onIncomingHandled = { incoming = emptyList() },
                     sharedLink = sharedLink, onSharedLinkHandled = { sharedLink = null },

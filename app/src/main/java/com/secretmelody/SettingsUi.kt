@@ -113,7 +113,7 @@ private fun SettingRow(icon: ImageVector, title: String, subtitle: String, enabl
         Box(
             Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Surface2),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, tint = if (enabled) Accent else Muted) }
+        ) { Icon(icon, null, tint = if (enabled) AccentText else Muted) }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Text(title, color = Color.White, fontSize = 16.sp)
             Text(subtitle, color = Muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -214,7 +214,7 @@ private fun GuideStep(n: Int, title: String, body: String, done: Boolean? = null
             Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(if (done == true) Accent else Surface2),
             contentAlignment = Alignment.Center,
         ) {
-            Text(if (done == true) "✓" else "$n", color = if (done == true) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(if (done == true) "✓" else "$n", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -429,7 +429,7 @@ fun LinkImportScreen(
                 }
             }
             if (spotifyId != null) SpotifyMatches(state, onRetry = { state.searchError = null; retry++ })
-            state.batchResult?.let { Text(it, color = Accent, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
+            state.batchResult?.let { Text(it, color = AccentText, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
             if (youtube) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                     YtFormat.entries.forEachIndexed { i, f ->
@@ -438,7 +438,7 @@ fun LinkImportScreen(
                             onClick = { state.format = f },
                             shape = SegmentedButtonDefaults.itemShape(i, YtFormat.entries.size),
                             enabled = !state.running,
-                            colors = SegmentedButtonDefaults.colors(activeContainerColor = Accent, activeContentColor = Color.Black),
+                            colors = SegmentedButtonDefaults.colors(activeContainerColor = Accent, activeContentColor = Color.White),
                         ) { Text(f.name) }
                     }
                 }
@@ -470,7 +470,7 @@ fun LinkImportScreen(
                     enabled = state.url.isNotBlank() && shortLink == null && (spotifyId == null || state.chosen != null) &&
                         (listPath == null || (state.listFor == listPath && state.list != null && state.picked.isNotEmpty())),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
                 ) {
                     Text(
                         when {
@@ -489,7 +489,7 @@ fun LinkImportScreen(
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface2).padding(12.dp),
                 ) {
-                    Text("นำเข้าแล้ว", color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("นำเข้าแล้ว", color = AccentText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Artwork(t, Modifier.size(56.dp))
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -501,7 +501,7 @@ fun LinkImportScreen(
                         OutlinedButton(onClick = { onEdit(t) }, Modifier.weight(1f)) { Text("แก้ไขข้อมูล") }
                         Button(
                             onClick = { onPlay(t) }, Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
                         ) { Text("เล่น", fontWeight = FontWeight.Bold) }
                     }
                 }
@@ -631,7 +631,7 @@ fun StorageScreen(tracks: List<Track>, freeBytes: Long, onBack: () -> Unit, onDe
                     selected = sort == i, onClick = { sort = i }, label = { Text(label) }, border = null,
                     colors = FilterChipDefaults.filterChipColors(
                         containerColor = Surface2, labelColor = Color.White,
-                        selectedContainerColor = Accent, selectedLabelColor = Color.Black,
+                        selectedContainerColor = Accent, selectedLabelColor = Color.White,
                     ),
                 )
             }
@@ -652,7 +652,7 @@ fun StorageScreen(tracks: List<Track>, freeBytes: Long, onBack: () -> Unit, onDe
                 ) {
                     Checkbox(
                         checked = on, onCheckedChange = { selected = if (on) selected - t.id else selected + t.id },
-                        colors = CheckboxDefaults.colors(checkedColor = Accent, checkmarkColor = Color.Black, uncheckedColor = Muted),
+                        colors = CheckboxDefaults.colors(checkedColor = Accent, checkmarkColor = Color.White, uncheckedColor = Muted),
                     )
                     Column(Modifier.weight(1f)) {
                         Text(t.title, color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

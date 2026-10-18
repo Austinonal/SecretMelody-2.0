@@ -318,14 +318,47 @@ fun App(
         linkImport.resultId = null
         linkImport.done = 0
         linkImport.total = 0
+        linkImport.batchResult = null
+        linkImport.batchTotal = 0
+        val batch = linkImport.list?.takeIf { spotifyListPath(linkImport.url) == linkImport.listFor }
+            ?.items?.filter { it.id in linkImport.picked }
         val fromSpotify = spotifyTrackId(linkImport.url) != null
         // A Spotify link converts the YouTube recording picked on the screen.
         val videoId = youtubeId(linkImport.url) ?: linkImport.chosen.takeIf { fromSpotify }
-        linkImport.percent = if (videoId != null) 0f else null
+        linkImport.percent = if (videoId != null || batch != null) 0f else null
         // shortcut: conversion lives in the screen's coroutine; leaving the app for long may kill it — move to a foreground WorkManager job if that bites
         linkJob = scope.launch {
             try {
-                if (videoId != null) {
+                if (batch != null) {
+                    // Each song goes the single-Spotify-song way: its own page, the best YouTube match, MP3, then its edits.
+                    val failed = mutableListOf<String>()
+                    linkImport.batchTotal = batch.size
+                    batch.forEachIndexed { i, item ->
+                        linkImport.batchIndex = i
+                        linkImport.batchTitle = item.title
+                        linkImport.percent = 0f
+                        try {
+                            val t = runInterruptible(Dispatchers.IO) { spotifyTrack(item.id) }
+                            val best = runInterruptible(Dispatchers.IO) { findOnYoutube(context, t) }.firstOrNull()
+                                ?: throw ImportException("ไม่เจอบน YouTube")
+                            val r = runInterruptible(Dispatchers.IO) {
+                                convertYoutube(context, best.id, YtFormat.MP3, t.title) { linkImport.percent = it }
+                            }
+                            edits.setText(r.key, t.title, t.artists.joinToString(", "))
+                            withContext(Dispatchers.IO) {
+                                t.coverUrl?.let { u -> runCatching { downloadBitmap(u) }.getOrNull() }?.let { edits.setCover(r.key, centerSquare(it)) }
+                            }
+                            reload++
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            failed += item.title // one bad song shouldn't stop the rest
+                        }
+                    }
+                    linkImport.batchResult = "แปลงเสร็จ ${batch.size - failed.size} จาก ${batch.size} เพลง" +
+                        if (failed.isEmpty()) "" else "\nไม่สำเร็จ: ${failed.joinToString(", ")}"
+                    linkImport.batchTotal = 0
+                } else if (videoId != null) {
                     val preview = linkImport.takeIf { it.previewId == previewKey(it.url) }
                     val format = if (fromSpotify) YtFormat.MP3 else linkImport.format
                     val result = runInterruptible(Dispatchers.IO) {

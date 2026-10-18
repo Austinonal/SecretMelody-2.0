@@ -17,12 +17,16 @@ fun spotifyTrackId(raw: String): String? =
 
 class SpotifyTrack(val title: String, val artists: List<String>, val durationSec: Double, val coverUrl: String?)
 
-/** Reads the track from the JSON Spotify's embed page carries (no API key needed). */
-fun parseSpotifyEmbed(html: String): SpotifyTrack {
+/** The song, album, playlist or artist that a Spotify embed page describes, from the JSON it carries (no API key needed). */
+private fun embedEntity(html: String): JSONObject {
     val json = Regex("""<script id="__NEXT_DATA__" type="application/json">(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
         .find(html)?.groupValues?.get(1) ?: throw ImportException("อ่านข้อมูลเพลงจาก Spotify ไม่ได้")
-    val e = JSONObject(json).getJSONObject("props").getJSONObject("pageProps").getJSONObject("state")
+    return JSONObject(json).getJSONObject("props").getJSONObject("pageProps").getJSONObject("state")
         .getJSONObject("data").getJSONObject("entity")
+}
+
+fun parseSpotifyEmbed(html: String): SpotifyTrack {
+    val e = embedEntity(html)
     val artists = e.optJSONArray("artists")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("name") } }.orEmpty()
     val images = e.optJSONObject("visualIdentity")?.optJSONArray("image")
     val cover = images?.let { a -> (0 until a.length()).map { a.getJSONObject(it) }.maxByOrNull { it.optInt("maxWidth") }?.optString("url") }
@@ -32,6 +36,30 @@ fun parseSpotifyEmbed(html: String): SpotifyTrack {
 /** Blocking; call on Dispatchers.IO. */
 fun spotifyTrack(id: String): SpotifyTrack =
     parseSpotifyEmbed(String(httpGet("https://open.spotify.com/embed/track/$id"), Charsets.UTF_8))
+
+/** "album/<id>", "playlist/<id>" or "artist/<id>"; null = not a Spotify album, playlist or artist link. */
+fun spotifyListPath(raw: String): String? =
+    Regex("""open\.spotify\.com/(?:intl-[a-z-]+/)?((?:album|playlist|artist)/[A-Za-z0-9]{22})(?![A-Za-z0-9])""")
+        .find(raw.trim())?.groupValues?.get(1)
+
+class SpotifyListItem(val id: String, val title: String, val artists: String)
+
+/** An album (every song), playlist (its first 50) or artist (their top 10), as the embed page lists them. */
+class SpotifyList(val name: String, val items: List<SpotifyListItem>)
+
+fun parseSpotifyList(html: String): SpotifyList {
+    val e = embedEntity(html)
+    val list = e.optJSONArray("trackList")
+    val items = (0 until (list?.length() ?: 0)).map { list!!.getJSONObject(it) }.mapNotNull { t ->
+        val id = t.optString("uri").removePrefix("spotify:track:").takeIf { it.length == 22 } ?: return@mapNotNull null
+        SpotifyListItem(id, t.optString("title"), t.optString("subtitle").replace('\u00a0', ' '))
+    }
+    return SpotifyList(e.optString("name"), items)
+}
+
+/** Blocking; call on Dispatchers.IO. */
+fun spotifyList(path: String): SpotifyList =
+    parseSpotifyList(String(httpGet("https://open.spotify.com/embed/$path"), Charsets.UTF_8))
 
 class YtCandidate(val id: String, val title: String, val channel: String, val durationSec: Double?)
 

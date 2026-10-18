@@ -21,6 +21,31 @@ class SpotifyTest {
     }
 
     @Test
+    fun spotifyListLinks() {
+        val id = "4aawyAB9vmqN3uQ7FjRGTy"
+        assertEquals("album/$id", spotifyListPath("https://open.spotify.com/album/$id?si=x"))
+        assertEquals("playlist/$id", spotifyListPath("https://open.spotify.com/intl-th/playlist/$id"))
+        assertEquals("artist/$id", spotifyListPath("ฟังนี่ https://open.spotify.com/artist/$id"))
+        assertNull(spotifyListPath("https://open.spotify.com/track/$id")) // a single song goes the other way
+        assertNull(spotifyListPath("https://open.spotify.com/show/$id"))
+        assertNull(spotifyTrackId("https://open.spotify.com/album/$id"))
+    }
+
+    @Test
+    fun embedPageListsTheSongs() {
+        // Same shape as open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M, trimmed.
+        val html = """<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"state":{"data":{"entity":
+            {"name":"Today’s Top Hits","trackList":[
+              {"uri":"spotify:track:3XmwAZpIMNpTJy8faw3ajD","title":"expectations (feat. Chappell Roan)","subtitle":"Olivia Rodrigo,\u00a0Chappell Roan","duration":223935},
+              {"uri":"spotify:episode:abc","title":"a podcast"},
+              {"uri":"spotify:track:0VjIjW4GlUZAMYd2vXMi3b","title":"Blinding Lights","subtitle":"The Weeknd"}]}}}}}}</script>"""
+        val l = parseSpotifyList(html)
+        assertEquals("Today’s Top Hits", l.name)
+        assertEquals(listOf("3XmwAZpIMNpTJy8faw3ajD", "0VjIjW4GlUZAMYd2vXMi3b"), l.items.map { it.id })
+        assertEquals("Olivia Rodrigo, Chappell Roan", l.items[0].artists)
+    }
+
+    @Test
     fun embedPageGivesTheSong() {
         // Same shape as open.spotify.com/embed/track/28LO3kx9x3fPRbXfAHprp2, trimmed.
         val html = """<html><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"state":{"data":{"entity":

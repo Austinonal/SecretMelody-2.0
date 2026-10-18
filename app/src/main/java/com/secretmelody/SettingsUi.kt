@@ -69,6 +69,15 @@ class LinkImportState {
     var candidates by mutableStateOf<List<YtCandidate>?>(null)
     var chosen by mutableStateOf<String?>(null) // YouTube video id to convert
     var searchError by mutableStateOf<String?>(null)
+    // Spotify album / playlist / artist: its songs, which ones to convert, and how the batch is going.
+    var listFor by mutableStateOf<String?>(null)
+    var list by mutableStateOf<SpotifyList?>(null)
+    var listError by mutableStateOf<String?>(null)
+    var picked by mutableStateOf(setOf<String>())
+    var batchIndex by mutableIntStateOf(0)
+    var batchTotal by mutableIntStateOf(0) // 0 = not converting a batch
+    var batchTitle by mutableStateOf("")
+    var batchResult by mutableStateOf<String?>(null)
 }
 
 /** Which preview a link gets: the YouTube id, "sp:" + the Spotify id, or null for a plain file link. */
@@ -280,6 +289,22 @@ fun LinkImportScreen(
     val videoId = youtubeId(state.url)
     val spotifyId = spotifyTrackId(state.url)
     val linkKey = previewKey(state.url)
+    val listPath = spotifyListPath(state.url)
+    LaunchedEffect(listPath) {
+        if (listPath == null || (listPath == state.listFor && state.list != null)) return@LaunchedEffect
+        state.listFor = listPath
+        state.list = null; state.listError = null; state.batchResult = null
+        val l = withContext(Dispatchers.IO) { runCatching { spotifyList(listPath) }.getOrNull() }
+        if (state.listFor != listPath) return@LaunchedEffect
+        when {
+            l == null -> state.listError = "อ่านรายชื่อเพลงจาก Spotify ไม่ได้ ตรวจสอบอินเทอร์เน็ตหรือลิงก์"
+            l.items.isEmpty() -> state.listError = "ไม่พบเพลงในลิงก์นี้"
+            else -> {
+                state.list = l
+                state.picked = l.items.map { it.id }.toSet()
+            }
+        }
+    }
     var retry by remember { mutableIntStateOf(0) }
     LaunchedEffect(linkKey, retry) {
         if (linkKey == null) return@LaunchedEffect
@@ -390,6 +415,8 @@ fun LinkImportScreen(
                 }
             }
             if (spotifyId != null) SpotifyMatches(state, onRetry = { state.searchError = null; retry++ })
+            if (listPath != null) SpotifyListPicker(state, listPath)
+            state.batchResult?.let { Text(it, color = Accent, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
             if (youtube) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                     YtFormat.entries.forEachIndexed { i, f ->
@@ -415,6 +442,8 @@ fun LinkImportScreen(
                 else LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent)
                 Text(
                     when {
+                        percent != null && state.batchTotal > 0 ->
+                            "เพลงที่ ${state.batchIndex + 1}/${state.batchTotal}: ${state.batchTitle} · กำลังแปลง ${(percent * 100).toInt()}%"
                         percent != null -> "กำลังแปลง ${(percent * 100).toInt()}%"
                         state.total > 0 -> "กำลังโหลด ${formatSize(state.done)} / ${formatSize(state.total)}"
                         else -> "กำลังโหลด ${formatSize(state.done)}"
@@ -425,10 +454,20 @@ fun LinkImportScreen(
             } else {
                 Button(
                     onClick = onImport,
-                    enabled = state.url.isNotBlank() && (spotifyId == null || state.chosen != null),
+                    enabled = state.url.isNotBlank() && (spotifyId == null || state.chosen != null) &&
+                        (listPath == null || (state.listFor == listPath && state.list != null && state.picked.isNotEmpty())),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
-                ) { Text(if (linkKey != null) "แปลง" else "นำเข้า", fontWeight = FontWeight.Bold) }
+                ) {
+                    Text(
+                        when {
+                            listPath != null -> "แปลง ${state.picked.size} เพลง"
+                            linkKey != null -> "แปลง"
+                            else -> "นำเข้า"
+                        },
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
             imported?.let { t ->
                 Spacer(Modifier.height(20.dp))
@@ -456,9 +495,55 @@ fun LinkImportScreen(
                 "ใช้ได้กับไฟล์ที่คุณมีสิทธิ์ เช่น เพลงของคุณเอง ลิงก์แชร์จาก Google Drive ของคุณ หรือเพลงที่เจ้าของอนุญาตให้ดาวน์โหลด" +
                     "\nลิงก์ YouTube แปลงเป็น MP3 (ไม่เกิน 240 นาที) หรือ MP4 360p (ไม่เกิน 30 นาที) ได้" +
                     "\nลิงก์เพลงจาก Spotify: แอปหาเพลงเดียวกันบน YouTube ให้เลือก แล้วแปลงเป็น MP3 (เสียงมาจาก YouTube ไม่ใช่ Spotify)" +
+                    "\nลิงก์อัลบั้ม เพลย์ลิสต์ (50 เพลงแรก) หรือศิลปิน (10 เพลงยอดนิยม) ของ Spotify: ติ๊กเพลงที่ต้องการแล้วแปลงทีละเพลงให้" +
                     "\nTikTok และหน้าเว็บทั่วไปยังใช้ไม่ได้",
                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 24.dp, bottom = 24.dp),
             )
+        }
+    }
+}
+
+/** The songs of a Spotify album / playlist / artist, all ticked to start with. */
+@Composable
+private fun SpotifyListPicker(state: LinkImportState, path: String) {
+    val list = state.list
+    when {
+        state.listError != null -> Text(state.listError!!, color = Danger, fontSize = 13.sp, modifier = Modifier.padding(vertical = 8.dp))
+        list == null || state.listFor != path -> Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(18.dp), color = Accent, strokeWidth = 2.dp)
+            Text("กำลังโหลดรายชื่อเพลง…", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 10.dp))
+        }
+        else -> Column(Modifier.padding(vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(list.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${list.items.size} เพลง" + if (path.startsWith("artist/")) " ยอดนิยม" else "",
+                        color = Muted, fontSize = 13.sp,
+                    )
+                }
+                val all = state.picked.size == list.items.size
+                TextButton(onClick = { state.picked = if (all) emptySet() else list.items.map { it.id }.toSet() }, enabled = !state.running) {
+                    Text(if (all) "ไม่เลือกเลย" else "เลือกทั้งหมด")
+                }
+            }
+            list.items.forEach { item ->
+                val on = item.id in state.picked
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = !state.running) { state.picked = if (on) state.picked - item.id else state.picked + item.id },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = on, onCheckedChange = null, enabled = !state.running)
+                    Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+                        Text(item.title, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(item.artists, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            if (path.startsWith("playlist/") && list.items.size >= 50) {
+                Text("Spotify ให้ดูได้แค่ 50 เพลงแรกของเพลย์ลิสต์", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            }
         }
     }
 }

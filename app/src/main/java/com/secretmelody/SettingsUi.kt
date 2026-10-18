@@ -415,7 +415,6 @@ fun LinkImportScreen(
                 }
             }
             if (spotifyId != null) SpotifyMatches(state, onRetry = { state.searchError = null; retry++ })
-            if (listPath != null) SpotifyListPicker(state, listPath)
             state.batchResult?.let { Text(it, color = Accent, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
             if (youtube) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
@@ -469,6 +468,8 @@ fun LinkImportScreen(
                     )
                 }
             }
+            // Below the button and progress, so a 50-song list doesn't push them off screen.
+            if (listPath != null) SpotifyListPicker(state, listPath)
             imported?.let { t ->
                 Spacer(Modifier.height(20.dp))
                 Column(

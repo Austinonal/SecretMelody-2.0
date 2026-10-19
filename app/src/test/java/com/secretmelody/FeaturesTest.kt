@@ -94,4 +94,16 @@ class FeaturesTest {
         assertEquals("ROSÉ", mainArtist("ROSÉ & Bruno Mars"))
         assertEquals("Three Man Down", mainArtist("Three Man Down"))
     }
+
+    @Test
+    fun translationAnswerAndCache() {
+        // Shape of Google Translate's web answer: segments (translated, original, …), then the detected language.
+        val answer = """[[["ฉันเดินอยู่ท่ามกลางสายฝน\n","I've been walking in the rain\n",null,null,10],["คุณทำให้ฉันมีชีวิตชีวา","You make me feel alive",null,null,10]],null,"en"]"""
+        assertEquals("en" to "ฉันเดินอยู่ท่ามกลางสายฝน\nคุณทำให้ฉันมีชีวิตชีวา", parseTranslate(answer))
+        val tr = Translation("en", listOf("ก", "", "ข"))
+        assertEquals(tr, decodeTranslation(encodeTranslation(tr), 3))
+        assertNull(decodeTranslation(encodeTranslation(tr), 4)) // lyrics changed: translate again
+        assertNull(decodeTranslation("junk", 3))
+        assertEquals(Translation("th", emptyList()), decodeTranslation(encodeTranslation(Translation("th", emptyList())), 9))
+    }
 }

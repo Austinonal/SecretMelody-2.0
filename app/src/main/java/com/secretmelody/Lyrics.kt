@@ -88,6 +88,15 @@ object LyricsCache {
         runCatching { offsetFile(dir, t).also { it.parentFile?.mkdirs() }.writeText(ms.toString()) }
     }
 
+    private fun translationFile(dir: File, t: Track) = File(file(dir, t).path.removeSuffix(".json") + ".th")
+
+    fun readTranslation(dir: File, t: Track, lines: Int): Translation? =
+        runCatching { decodeTranslation(translationFile(dir, t).readText(), lines) }.getOrNull()
+
+    fun saveTranslation(dir: File, t: Track, tr: Translation) {
+        runCatching { translationFile(dir, t).also { it.parentFile?.mkdirs() }.writeText(encodeTranslation(tr)) }
+    }
+
     fun read(dir: File, t: Track): Lyrics? = runCatching { fromLrclib(JSONObject(file(dir, t).readText())) }.getOrNull()
 
     fun save(dir: File, t: Track, l: Lyrics) {

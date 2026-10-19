@@ -1334,9 +1334,36 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
         }
     }
     var offset by remember(t.key, t.title) { mutableLongStateOf(LyricsCache.offset(context.filesDir, t)) }
+    var showTr by remember(t.key, t.title) { mutableStateOf(false) }
+    var retry by remember { mutableIntStateOf(0) }
+    val tr by produceState<Result<Translation>?>(null, found, showTr, retry) {
+        value = null
+        val synced = found?.synced
+        if (!showTr || synced == null) return@produceState
+        value = withContext(Dispatchers.IO) {
+            LyricsCache.readTranslation(context.filesDir, t, synced.size)?.let { Result.success(it) }
+                ?: runCatching { translateLyrics(synced.map { it.text }) }.onSuccess { LyricsCache.saveTranslation(context.filesDir, t, it) }
+        }
+    }
     Column(modifier) {
-        LyricsView(found, posMs - offset, { onSeek(it + offset) }, Modifier.weight(1f).fillMaxWidth())
+        LyricsView(found, posMs - offset, { onSeek(it + offset) }, Modifier.weight(1f).fillMaxWidth(), tr?.getOrNull()?.lines?.takeIf { showTr })
         if (found?.synced != null) {
+            val result = tr
+            val label = when {
+                !showTr -> "แปลเป็นไทย"
+                result == null -> "กำลังแปล…"
+                result.isFailure -> "แปลไม่ได้ แตะเพื่อลองใหม่"
+                result.getOrThrow().lines.isEmpty() -> "เนื้อเพลงเป็นภาษาไทยอยู่แล้ว"
+                else -> "ซ่อนคำแปล"
+            }
+            val action: () -> Unit = {
+                when {
+                    !showTr -> showTr = true
+                    result?.isFailure == true -> retry++
+                    result != null -> showTr = false
+                }
+            }
+            TextButton(onClick = action, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(label, color = AccentText) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                 fun shift(by: Long) { offset += by; LyricsCache.saveOffset(context.filesDir, t, offset) }
                 TextButton(onClick = { shift(-500) }) { Text("เนื้อเพลงเร็วขึ้น", color = Muted) }
@@ -1349,7 +1376,7 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
 
 /** null = still looking. */
 @Composable
-fun LyricsView(lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier) {
+fun LyricsView(lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier, translation: List<String>? = null) {
     Box(modifier.padding(vertical = 16.dp)) {
         when {
             lyrics == null -> Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
@@ -1364,13 +1391,17 @@ fun LyricsView(lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: M
                 LaunchedEffect(now) { if (now >= 0) list.animateScrollToItem((now - 2).coerceAtLeast(0)) }
                 LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(lines) { i, line ->
-                        Text(
-                            line.text.ifBlank { "♪" },
-                            color = if (i == now) Color.White else Color.White.copy(alpha = 0.55f),
-                            fontSize = if (i == now) 24.sp else 21.sp,
-                            fontWeight = FontWeight.Bold, lineHeight = 30.sp,
-                            modifier = Modifier.fillMaxWidth().clickable { onSeek(line.ms) }.padding(vertical = 8.dp),
-                        )
+                        Column(Modifier.fillMaxWidth().clickable { onSeek(line.ms) }.padding(vertical = 8.dp)) {
+                            Text(
+                                line.text.ifBlank { "♪" },
+                                color = if (i == now) Color.White else Color.White.copy(alpha = 0.55f),
+                                fontSize = if (i == now) 24.sp else 21.sp,
+                                fontWeight = FontWeight.Bold, lineHeight = 30.sp,
+                            )
+                            translation?.getOrNull(i)?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, color = AccentText.copy(alpha = if (i == now) 1f else 0.7f), fontSize = 16.sp, lineHeight = 22.sp)
+                            }
+                        }
                     }
                 }
             }

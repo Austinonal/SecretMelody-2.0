@@ -1333,7 +1333,8 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
                 ?: Lyrics(null, null)
         }
     }
-    var offset by remember(t.key, t.title) { mutableLongStateOf(LyricsCache.offset(context.filesDir, t)) }
+    var saved by remember(t.key, t.title) { mutableStateOf(LyricsCache.offset(context.filesDir, t)) }
+    val offset = saved ?: found?.let { introOffsetMs(t.durationMs, it.durationSec) } ?: 0L
     var showTr by remember(t.key, t.title) { mutableStateOf(false) }
     var retry by remember { mutableIntStateOf(0) }
     val tr by produceState<Result<Translation>?>(null, found, showTr, retry) {
@@ -1365,10 +1366,10 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
             }
             TextButton(onClick = action, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(label, color = AccentText) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                fun shift(by: Long) { offset += by; LyricsCache.saveOffset(context.filesDir, t, offset) }
-                TextButton(onClick = { shift(-500) }) { Text("เนื้อเพลงเร็วขึ้น", color = Muted) }
+                fun shift(by: Long) { saved = offset + by; LyricsCache.saveOffset(context.filesDir, t, offset + by) }
+                TextButton(onClick = { shift(-500) }) { Text("เนื้อเพลงช้าไป", color = Muted) }
                 Text(if (offset == 0L) "ตรงต้นฉบับ" else "%+.1f วิ".format(offset / 1000.0), color = Color.White, fontSize = 13.sp)
-                TextButton(onClick = { shift(500) }) { Text("เนื้อเพลงช้าลง", color = Muted) }
+                TextButton(onClick = { shift(500) }) { Text("เนื้อเพลงเร็วไป", color = Muted) }
             }
         }
     }

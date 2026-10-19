@@ -122,4 +122,16 @@ class FeaturesTest {
         assertNull(pickLyrics(results, 252.0, "Garden", "Lady Gaga"))
         assertNull(pickLyrics(results, 252.0, "Die With A Smile", "Taylor Swift"))
     }
+
+    @Test
+    fun musicVideoIntroHoldsTheLyricsBack() {
+        // ฝนตกไหม: the MV is 4:21 + a 30 s acted intro; LRCLIB's lyrics are timed to the 261 s recording.
+        val results = JSONArray("""[{"trackName":"ฝนตกไหม","artistName":"Three Man Down","duration":261.0,"syncedLyrics":"[00:09.35] ฝนตกอีกแล้ว"}]""")
+        val l = pickLyrics(results, 291.0, "ฝนตกไหม - Three Man Down |Official MV|", "Three Man Down")
+        assertEquals(261.0, l!!.durationSec, 0.0)
+        assertEquals(30_000L, introOffsetMs(291_000, l.durationSec))
+        assertEquals(0L, introOffsetMs(262_000, 261.0)) // same recording, a second apart
+        assertEquals(0L, introOffsetMs(291_000, 0.0)) // length unknown (saved by an older version)
+        assertNull(pickLyrics(results, 340.0)) // 79 s longer: another version, not an intro
+    }
 }

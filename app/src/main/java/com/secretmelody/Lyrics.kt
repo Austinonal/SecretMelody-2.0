@@ -9,7 +9,17 @@ import kotlin.math.abs
 data class LyricLine(val ms: Long, val text: String)
 
 /** [synced] when the source has timings, else [plain] text; both null = none found. */
-data class Lyrics(val synced: List<LyricLine>?, val plain: String?)
+data class Lyrics(val synced: List<LyricLine>?, val plain: String?, val durationSec: Double = 0.0)
+
+/**
+ * A music video runs longer than the recording the lyrics were timed to, mostly because of a spoken or acted
+ * intro, so the lines are held back by the difference. shortcut: assumes the extra time is at the start; an MV
+ * with a long outro instead needs the buttons.
+ */
+fun introOffsetMs(trackMs: Long, lyricsSec: Double): Long {
+    val extra = trackMs - (lyricsSec * 1000).toLong()
+    return if (lyricsSec > 0 && extra > 2_000) extra else 0L
+}
 
 private val TIME_TAG = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
 
@@ -31,7 +41,7 @@ fun currentLine(lines: List<LyricLine>, posMs: Long): Int = lines.indexOfLast { 
 private fun fromLrclib(o: JSONObject): Lyrics? {
     val synced = o.optString("syncedLyrics").takeIf { it.isNotBlank() && it != "null" }?.let(::parseLrc)?.takeIf { it.isNotEmpty() }
     val plain = o.optString("plainLyrics").takeIf { it.isNotBlank() && it != "null" }
-    return if (synced == null && plain == null) null else Lyrics(synced, plain)
+    return if (synced == null && plain == null) null else Lyrics(synced, plain, o.optDouble("duration", 0.0))
 }
 
 private fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() || Character.getType(it) == Character.NON_SPACING_MARK.toInt() }
@@ -56,7 +66,7 @@ private fun sameArtist(ours: String, theirs: String): Boolean {
  */
 fun pickLyrics(results: JSONArray, durationSec: Double, title: String = "", artist: String = ""): Lyrics? =
     (0 until results.length()).map { results.getJSONObject(it) }
-        .filter { abs(it.optDouble("duration", 0.0) - durationSec) <= 5 }
+        .filter { (durationSec - it.optDouble("duration", 0.0)) in -5.0..60.0 } // a video may add up to a minute of intro
         .filter { title.isBlank() || sameTitle(title, it.optString("trackName")) }
         .filter { artist.isBlank() || sameArtist(artist, it.optString("artistName")) }
         .sortedWith(compareBy<JSONObject> { it.optString("syncedLyrics").isBlank() || it.optString("syncedLyrics") == "null" }
@@ -103,7 +113,7 @@ object LyricsCache {
     private fun offsetFile(dir: File, t: Track) = File(file(dir, t).path.removeSuffix(".json") + ".offset")
 
     /** How far the user shifted this song's lines (ms, + = later); the same lyrics fit each recording a little differently. */
-    fun offset(dir: File, t: Track): Long = runCatching { offsetFile(dir, t).readText().trim().toLong() }.getOrDefault(0L)
+    fun offset(dir: File, t: Track): Long? = runCatching { offsetFile(dir, t).readText().trim().toLong() }.getOrNull()
 
     fun saveOffset(dir: File, t: Track, ms: Long) {
         runCatching { offsetFile(dir, t).also { it.parentFile?.mkdirs() }.writeText(ms.toString()) }
@@ -125,7 +135,7 @@ object LyricsCache {
             val f = file(dir, t)
             f.parentFile?.mkdirs()
             val lrc = l.synced?.joinToString("\n") { "[%02d:%02d.%02d]%s".format(it.ms / 60_000, it.ms / 1000 % 60, it.ms % 1000 / 10, it.text) }
-            f.writeText(JSONObject().put("syncedLyrics", lrc ?: "").put("plainLyrics", l.plain ?: "").toString())
+            f.writeText(JSONObject().put("syncedLyrics", lrc ?: "").put("plainLyrics", l.plain ?: "").put("duration", l.durationSec).toString())
         }
     }
 }

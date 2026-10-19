@@ -17,7 +17,7 @@
     <application
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:label="SecretMelody"
+        android:label="Ditto"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
@@ -77,7 +77,7 @@
         <receiver
             android:name=".PlayerWidget"
             android:exported="false"
-            android:label="SecretMelody">
+            android:label="Ditto">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

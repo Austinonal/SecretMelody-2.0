@@ -94,4 +94,32 @@ class FeaturesTest {
         assertEquals("ROSÉ", mainArtist("ROSÉ & Bruno Mars"))
         assertEquals("Three Man Down", mainArtist("Three Man Down"))
     }
+
+    @Test
+    fun translationAnswerAndCache() {
+        // Shape of Google Translate's web answer: segments (translated, original, …), then the detected language.
+        val answer = """[[["ฉันเดินอยู่ท่ามกลางสายฝน\n","I've been walking in the rain\n",null,null,10],["คุณทำให้ฉันมีชีวิตชีวา","You make me feel alive",null,null,10]],null,"en"]"""
+        assertEquals("en" to "ฉันเดินอยู่ท่ามกลางสายฝน\nคุณทำให้ฉันมีชีวิตชีวา", parseTranslate(answer))
+        val tr = Translation("en", listOf("ก", "", "ข"))
+        assertEquals(tr, decodeTranslation(encodeTranslation(tr), 3))
+        assertNull(decodeTranslation(encodeTranslation(tr), 4)) // lyrics changed: translate again
+        assertNull(decodeTranslation("junk", 3))
+        assertEquals(Translation("th", emptyList()), decodeTranslation(encodeTranslation(Translation("th", emptyList())), 9))
+    }
+
+    @Test
+    fun lyricsOfOtherSongsAreRejected() {
+        val results = JSONArray(
+            """[
+            {"trackName":"Smile","artistName":"Lily Allen","duration":252.0,"syncedLyrics":"[00:01.00] wrong song"},
+            {"trackName":"Die With A Smile","artistName":"Someone Else","duration":252.0,"syncedLyrics":"[00:01.00] wrong artist"},
+            {"trackName":"Die With A Smile - Instrumental","artistName":"Lady Gaga & Bruno Mars","duration":252.0,"syncedLyrics":"[00:01.00] instrumental"},
+            {"trackName":"Lady Gaga, Bruno Mars - Die With A Smile","artistName":"Lady Gaga","duration":251.0,"syncedLyrics":"[00:01.00] right"}
+            ]""",
+        )
+        val got = pickLyrics(results, 252.0, "Die With A Smile (Official Video)", "Lady Gaga feat. Bruno Mars")
+        assertEquals(listOf(LyricLine(1_000, "right")), got?.synced)
+        assertNull(pickLyrics(results, 252.0, "Garden", "Lady Gaga"))
+        assertNull(pickLyrics(results, 252.0, "Die With A Smile", "Taylor Swift"))
+    }
 }

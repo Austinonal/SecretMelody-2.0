@@ -34,10 +34,31 @@ private fun fromLrclib(o: JSONObject): Lyrics? {
     return if (synced == null && plain == null) null else Lyrics(synced, plain)
 }
 
-/** From LRCLIB search results: synced first, then the closest length within 5 s. */
-fun pickLyrics(results: JSONArray, durationSec: Double): Lyrics? =
+private fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() || Character.getType(it) == Character.NON_SPACING_MARK.toInt() }
+
+/** Same song title; "Smile" is not "Die With A Smile", "… - Instrumental" is not the song, "Artist - Song" is. */
+private fun sameTitle(ours: String, theirs: String): Boolean {
+    val x = norm(cleanTitle(ours))
+    val stripped = theirs.replace(BRACKETS, "")
+    return x.isNotEmpty() && listOf(stripped, stripped.substringAfterLast(" - ")).map(::norm).any { y ->
+        y.isNotEmpty() && (x == y || ((x in y || y in x) && minOf(x.length, y.length) >= 0.7 * maxOf(x.length, y.length)))
+    }
+}
+
+private fun sameArtist(ours: String, theirs: String): Boolean {
+    val t = norm(theirs)
+    return ours.split(ARTIST_SEP).map(::norm).any { it.isNotEmpty() && t.isNotEmpty() && (it in t || t in it) }
+}
+
+/**
+ * From LRCLIB search results: only the same song (title, and artist when we know it) within 5 s of its length,
+ * synced first, then the closest length. A search can return other songs; their words would be wrong for this one.
+ */
+fun pickLyrics(results: JSONArray, durationSec: Double, title: String = "", artist: String = ""): Lyrics? =
     (0 until results.length()).map { results.getJSONObject(it) }
         .filter { abs(it.optDouble("duration", 0.0) - durationSec) <= 5 }
+        .filter { title.isBlank() || sameTitle(title, it.optString("trackName")) }
+        .filter { artist.isBlank() || sameArtist(artist, it.optString("artistName")) }
         .sortedWith(compareBy<JSONObject> { it.optString("syncedLyrics").isBlank() || it.optString("syncedLyrics") == "null" }
             .thenBy { abs(it.optDouble("duration", 0.0) - durationSec) })
         .firstNotNullOfOrNull(::fromLrclib)
@@ -71,13 +92,13 @@ fun fetchLyrics(t: Track): Lyrics? {
     // Exact lookup missed: search, matching by length. The title alone catches a wrong or misspelled artist.
     return listOf(listOf(t.title, artist), listOf(title, main), listOf(title)).map { it.filter(String::isNotBlank).joinToString(" ") }
         .distinct().filter { it.isNotBlank() }.firstNotNullOfOrNull { q ->
-            runCatching { pickLyrics(JSONArray(String(httpGet("https://lrclib.net/api/search?q=${enc(q)}"), Charsets.UTF_8)), sec) }.getOrNull()
+            runCatching { pickLyrics(JSONArray(String(httpGet("https://lrclib.net/api/search?q=${enc(q)}"), Charsets.UTF_8)), sec, t.title, artist) }.getOrNull()
         }
 }
 
 /** Found lyrics are kept in app storage, so a song is looked up once. Misses are not kept, so they are tried again later. */
 object LyricsCache {
-    private fun file(dir: File, t: Track) = File(dir, "lyrics/${t.key.hashCode().toUInt()}-${t.title.hashCode().toUInt()}.json")
+    private fun file(dir: File, t: Track) = File(dir, "lyrics2/${t.key.hashCode().toUInt()}-${t.title.hashCode().toUInt()}.json")
 
     private fun offsetFile(dir: File, t: Track) = File(file(dir, t).path.removeSuffix(".json") + ".offset")
 
@@ -86,6 +107,15 @@ object LyricsCache {
 
     fun saveOffset(dir: File, t: Track, ms: Long) {
         runCatching { offsetFile(dir, t).also { it.parentFile?.mkdirs() }.writeText(ms.toString()) }
+    }
+
+    private fun translationFile(dir: File, t: Track) = File(file(dir, t).path.removeSuffix(".json") + ".th")
+
+    fun readTranslation(dir: File, t: Track, lines: Int): Translation? =
+        runCatching { decodeTranslation(translationFile(dir, t).readText(), lines) }.getOrNull()
+
+    fun saveTranslation(dir: File, t: Track, tr: Translation) {
+        runCatching { translationFile(dir, t).also { it.parentFile?.mkdirs() }.writeText(encodeTranslation(tr)) }
     }
 
     fun read(dir: File, t: Track): Lyrics? = runCatching { fromLrclib(JSONObject(file(dir, t).readText())) }.getOrNull()

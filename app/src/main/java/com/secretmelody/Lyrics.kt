@@ -44,24 +44,49 @@ fun pickLyrics(results: JSONArray, durationSec: Double): Lyrics? =
 
 private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+private val BRACKETS = Regex("""\s*[(\[（【].*?[)\]）】]""")
+private val ARTIST_SEP = Regex("""\s*(?:,|&|;|/|\bfeat\.?|\bft\.?|\bfeaturing|\sx\s)\s*""", RegexOption.IGNORE_CASE)
+
+/** "Song (Official Video) - Remastered 2011" → "Song"; lyrics sites list the plain title. */
+fun cleanTitle(title: String): String = title.replace(BRACKETS, "").substringBefore(" - ").trim().ifBlank { title.trim() }
+
+/** "A feat. B & C" → "A": lyrics are filed under the main artist. */
+fun mainArtist(artist: String): String = artist.split(ARTIST_SEP).first().trim().ifBlank { artist.trim() }
+
 /** Free, keyless lyrics from lrclib.net; null when there are none. Blocking; call on Dispatchers.IO. */
 fun fetchLyrics(t: Track): Lyrics? {
     val sec = t.durationMs / 1000.0
     val artist = t.artist.takeUnless { it == "ไม่ทราบศิลปิน" }.orEmpty()
+    val title = cleanTitle(t.title)
+    val main = mainArtist(artist)
     if (artist.isNotEmpty()) {
-        runCatching {
-            val url = "https://lrclib.net/api/get?track_name=${enc(t.title)}&artist_name=${enc(artist)}&duration=${sec.toLong()}"
-            fromLrclib(JSONObject(String(httpGet(url), Charsets.UTF_8)))
-        }.getOrNull()?.let { return it }
+        // Exact lookup first as filed, then with the tidied title and main artist.
+        listOf(t.title to artist, title to main).distinct().forEach { (tt, aa) ->
+            runCatching {
+                val url = "https://lrclib.net/api/get?track_name=${enc(tt)}&artist_name=${enc(aa)}&duration=${sec.toLong()}"
+                fromLrclib(JSONObject(String(httpGet(url), Charsets.UTF_8)))
+            }.getOrNull()?.let { return it }
+        }
     }
-    // Exact lookup missed (often a slightly different title): search and match by length.
-    val q = listOf(t.title, artist).filter { it.isNotBlank() }.joinToString(" ")
-    return pickLyrics(JSONArray(String(httpGet("https://lrclib.net/api/search?q=${enc(q)}"), Charsets.UTF_8)), sec)
+    // Exact lookup missed: search, matching by length. The title alone catches a wrong or misspelled artist.
+    return listOf(listOf(t.title, artist), listOf(title, main), listOf(title)).map { it.filter(String::isNotBlank).joinToString(" ") }
+        .distinct().filter { it.isNotBlank() }.firstNotNullOfOrNull { q ->
+            runCatching { pickLyrics(JSONArray(String(httpGet("https://lrclib.net/api/search?q=${enc(q)}"), Charsets.UTF_8)), sec) }.getOrNull()
+        }
 }
 
 /** Found lyrics are kept in app storage, so a song is looked up once. Misses are not kept, so they are tried again later. */
 object LyricsCache {
     private fun file(dir: File, t: Track) = File(dir, "lyrics/${t.key.hashCode().toUInt()}-${t.title.hashCode().toUInt()}.json")
+
+    private fun offsetFile(dir: File, t: Track) = File(file(dir, t).path.removeSuffix(".json") + ".offset")
+
+    /** How far the user shifted this song's lines (ms, + = later); the same lyrics fit each recording a little differently. */
+    fun offset(dir: File, t: Track): Long = runCatching { offsetFile(dir, t).readText().trim().toLong() }.getOrDefault(0L)
+
+    fun saveOffset(dir: File, t: Track, ms: Long) {
+        runCatching { offsetFile(dir, t).also { it.parentFile?.mkdirs() }.writeText(ms.toString()) }
+    }
 
     fun read(dir: File, t: Track): Lyrics? = runCatching { fromLrclib(JSONObject(file(dir, t).readText())) }.getOrNull()
 

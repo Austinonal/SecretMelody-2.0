@@ -1333,7 +1333,18 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
                 ?: Lyrics(null, null)
         }
     }
-    LyricsView(found, posMs, onSeek, modifier)
+    var offset by remember(t.key, t.title) { mutableLongStateOf(LyricsCache.offset(context.filesDir, t)) }
+    Column(modifier) {
+        LyricsView(found, posMs - offset, { onSeek(it + offset) }, Modifier.weight(1f).fillMaxWidth())
+        if (found?.synced != null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                fun shift(by: Long) { offset += by; LyricsCache.saveOffset(context.filesDir, t, offset) }
+                TextButton(onClick = { shift(-500) }) { Text("เนื้อเพลงเร็วขึ้น", color = Muted) }
+                Text(if (offset == 0L) "ตรงต้นฉบับ" else "%+.1f วิ".format(offset / 1000.0), color = Color.White, fontSize = 13.sp)
+                TextButton(onClick = { shift(500) }) { Text("เนื้อเพลงช้าลง", color = Muted) }
+            }
+        }
+    }
 }
 
 /** null = still looking. */
@@ -1388,7 +1399,7 @@ private fun NowPlaying(
     onSleep: () -> Unit,
     onClose: () -> Unit,
 ) {
-    val (pos, dur) = rememberProgress(player)
+    val (pos, dur) = rememberProgress(player, 150) // fast enough for lyrics to change on the beat
     val total = if (dur > 0) dur else t.durationMs
     var drag by remember { mutableStateOf<Float?>(null) }
     val max = total.coerceAtLeast(1L).toFloat()

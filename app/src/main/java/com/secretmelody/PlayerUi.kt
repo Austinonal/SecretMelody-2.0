@@ -61,14 +61,14 @@ fun rememberPlayerUi(player: Player): PlayerUi {
 
 /** Position and duration in ms, polled twice a second. Duration is 0 while unknown. */
 @Composable
-fun rememberProgress(player: Player): Pair<Long, Long> {
+fun rememberProgress(player: Player, everyMs: Long = 500): Pair<Long, Long> {
     var pos by remember { mutableLongStateOf(0L) }
     var dur by remember { mutableLongStateOf(0L) }
     LaunchedEffect(player) {
         while (true) {
             pos = player.currentPosition
             dur = player.duration.coerceAtLeast(0L)
-            delay(500)
+            delay(everyMs)
         }
     }
     return pos to dur

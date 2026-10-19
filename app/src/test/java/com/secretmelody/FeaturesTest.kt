@@ -84,4 +84,14 @@ class FeaturesTest {
         assertEquals("plain only", pickLyrics(JSONArray().put(results.get(0)), 261.0)?.plain)
         assertNull(pickLyrics(JSONArray().put(results.get(2)), 261.0)) // 77 s off: another version
     }
+
+    @Test
+    fun lyricsLookupUsesThePlainTitleAndMainArtist() {
+        assertEquals("Blinding Lights", cleanTitle("Blinding Lights (Official Video) [4K]"))
+        assertEquals("Yesterday", cleanTitle("Yesterday - Remastered 2009"))
+        assertEquals("(Untitled)", cleanTitle("(Untitled)")) // never empties the title
+        assertEquals("Lady Gaga", mainArtist("Lady Gaga feat. Bruno Mars"))
+        assertEquals("ROSÉ", mainArtist("ROSÉ & Bruno Mars"))
+        assertEquals("Three Man Down", mainArtist("Three Man Down"))
+    }
 }

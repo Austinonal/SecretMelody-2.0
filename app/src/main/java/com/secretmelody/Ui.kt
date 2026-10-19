@@ -952,7 +952,15 @@ private fun CollectionScreen(
                 }
             }
         }
+        // A multi-disc album gets a heading at the start of each disc.
+        val discs = !g.isArtist && g.playlistId == null && g.tracks.map { it.disc }.distinct().size > 1
         itemsIndexed(g.tracks, key = { _, t -> t.id }) { i, t ->
+            if (discs && (i == 0 || g.tracks[i - 1].disc != t.disc)) {
+                Text(
+                    if (t.disc > 0) "แผ่นที่ ${t.disc}" else "ไม่ทราบแผ่น", color = Muted, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                )
+            }
             if (editing) {
                 TrackRow(t, t.id == currentId, onClick = {}, actions) {
                     // Buttons instead of drag-to-reorder: one tap each, and easy to hit.

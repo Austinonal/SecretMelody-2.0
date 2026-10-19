@@ -55,11 +55,7 @@ fun GroupCover(g: TrackGroup, modifier: Modifier, px: Int = 300) {
     }
 }
 
-private fun librarySubtitle(g: TrackGroup) = when {
-    g.isArtist -> "ศิลปิน"
-    g.playlistId != null -> g.subtitle
-    else -> "อัลบั้ม • ${g.subtitle}"
-}
+private fun librarySubtitle(g: TrackGroup) = if (g.isArtist) "ศิลปิน" else g.subtitle // albums carry their type
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

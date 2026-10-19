@@ -27,10 +27,48 @@ fun parseOembed(json: String): Pair<String, String> {
     return o.optString("title") to o.optString("author_name").removeSuffix(" - Topic")
 }
 
+// Bracketed or trailing bits of a clip title that describe the clip, not the song.
+private val CLIP_NOISE = Regex(
+    """\s*[(\[【|]\s*(official|lyric|lyrics|audio|visuali[sz]er|mv|m/v|music video|video|hd|4k|remaster|เนื้อเพลง|คลิป)[^)\]】|]*[)\]】|]?""",
+    RegexOption.IGNORE_CASE,
+)
+private val CLIP_SUFFIX = Regex("""\s+(official\s+)?(m/?v|music video|lyric video)\s*$""", RegexOption.IGNORE_CASE)
+
+private fun hasThai(s: String) = s.any { it in '\u0E00'..'\u0E7F' }
+
+private fun squash(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+
+/**
+ * Song title and artist from a clip title like "Artist - Song (Official Video)" or "เพลง - ศิลปิน |Official MV|".
+ * The channel decides which side is the artist when it matches one; else English clips put the artist first and
+ * Thai ones the song first.
+ */
+fun splitVideoTitle(clipTitle: String, channel: String): Pair<String, String> {
+    var t = clipTitle
+    while (true) {
+        val cleaned = CLIP_NOISE.replace(t, "").let { CLIP_SUFFIX.replace(it, "") }.trim()
+        if (cleaned == t) break
+        t = cleaned
+    }
+    val ch = channel.removeSuffix(" - Topic").replace(Regex("""(?i)vevo$|\s*official$|\s*music$"""), "").trim()
+    val parts = t.split(Regex("""\s+[-–—|]\s+""")).map { it.trim() }.filter { it.isNotEmpty() }
+    if (parts.size < 2) return (t.ifBlank { clipTitle.trim() }) to ch
+    val (left, right) = parts[0] to parts[1] // a third part is usually a show or channel name
+    val chKey = squash(ch)
+    val artistFirst = when {
+        chKey.isNotEmpty() && squash(left).let { it.isNotEmpty() && (chKey.contains(it) || it.contains(chKey)) } -> true
+        chKey.isNotEmpty() && squash(right).let { it.isNotEmpty() && (chKey.contains(it) || it.contains(chKey)) } -> false
+        hasThai(left) != hasThai(right) -> !hasThai(left) // the Thai side is the song
+        else -> !hasThai(left) // both English: "Artist - Song"; both Thai: "เพลง - ศิลปิน"
+    }
+    return if (artistFirst) right to left else left to right
+}
+
 /** Fast (no yt-dlp): title, channel and thumbnail for the card. Blocking; call on Dispatchers.IO. */
 fun youtubePreview(videoId: String): YtPreview {
     val watch = URLEncoder.encode("https://www.youtube.com/watch?v=$videoId", "UTF-8")
     val (title, artist) = parseOembed(String(httpGet("https://www.youtube.com/oembed?format=json&url=$watch"), Charsets.UTF_8))
+        .let { (clip, channel) -> splitVideoTitle(clip, channel) }
     // maxresdefault is missing on some videos; mqdefault always exists. Both are 16:9 without black bars.
     val thumb = listOf("maxresdefault", "mqdefault").firstNotNullOfOrNull {
         runCatching { downloadBitmap("https://i.ytimg.com/vi/$videoId/$it.jpg") }.getOrNull()

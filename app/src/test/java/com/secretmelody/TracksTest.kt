@@ -34,6 +34,33 @@ class TracksTest {
     }
 
     @Test
+    fun severalArtistsOnOneSong() {
+        val known = setOf("Olivia Rodrigo", "Chappell Roan", "Simon & Garfunkel", "Earth, Wind & Fire", "The Weeknd")
+        assertEquals(listOf("Olivia Rodrigo", "Chappell Roan"), splitArtists("Olivia Rodrigo, Chappell Roan", known))
+        assertEquals(listOf("The Weeknd", "Daft Punk"), splitArtists("The Weeknd feat. Daft Punk", known))
+        assertEquals(listOf("A", "B", "C"), splitArtists("A; B / C", known))
+        assertEquals(listOf("Simon & Garfunkel"), splitArtists("Simon & Garfunkel", known)) // a band, not two artists
+        assertEquals(listOf("Earth, Wind & Fire"), splitArtists("Earth, Wind & Fire", known))
+        assertEquals(listOf("Three Man Down"), splitArtists("Three Man Down", known))
+        val duet = Track(20, "expectations", "Olivia Rodrigo, Chappell Roan", "X", 30, 1000)
+        val solo = Track(21, "drivers license", "Olivia Rodrigo", "Y", 31, 1000)
+        val pages = listOf(duet, solo).artists().associate { it.title to it.tracks.map { t -> t.id } }
+        assertEquals(mapOf("Chappell Roan" to listOf(20L), "Olivia Rodrigo" to listOf(21L, 20L)), pages)
+    }
+
+    @Test
+    fun albumTypesAndDiscs() {
+        fun songs(n: Int, min: Int) = (1..n).map { Track(100L + it, "s$it", "A", "Al", 7, min * 60_000L, trackNo = it) }
+        assertEquals("ซิงเกิล", albumType(songs(1, 4)))
+        assertEquals("EP", albumType(songs(5, 4)))
+        assertEquals("อัลบั้ม", albumType(songs(10, 4)))
+        assertEquals("อัลบั้ม", albumType(songs(3, 12))) // three long songs are not a single
+        assertEquals("ซิงเกิล • A", songs(2, 3).albums().single().subtitle)
+        val twoDiscs = listOf(Track(1, "a", "A", "B", 1, 1, trackNo = 2001), Track(2, "b", "A", "B", 1, 1, trackNo = 1003))
+        assertEquals(listOf(1, 2), twoDiscs.albums().single().tracks.map { it.disc })
+    }
+
+    @Test
     fun formatsTime() {
         assertEquals("0:00", formatTime(-5))
         assertEquals("3:05", formatTime(185_000))

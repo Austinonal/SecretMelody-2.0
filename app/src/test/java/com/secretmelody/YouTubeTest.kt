@@ -72,6 +72,21 @@ class YouTubeTest {
         assertNull(linkFromShare("http://example.com/a.mp3"))
     }
 
+    @Test
+    fun clipTitlesSplitIntoSongAndArtist() {
+        // Real clip titles and channels from YouTube searches.
+        assertEquals("Never Gonna Give You Up" to "Rick Astley", splitVideoTitle("Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)", "Rick Astley"))
+        assertEquals("Blinding Lights" to "The Weeknd", splitVideoTitle("The Weeknd - Blinding Lights (Official Video)", "TheWeekndVEVO"))
+        assertEquals("ฝนตกไหม" to "Three Man Down", splitVideoTitle("ฝนตกไหม - Three Man Down |Official MV|", "GeneLab"))
+        assertEquals("ฝนตกไหม" to "Three Man Down", splitVideoTitle("ฝนตกไหม - Three Man Down |Lyric Video|", "GeneLab"))
+        assertEquals("ทางผ่าน" to "Polycat", splitVideoTitle("Polycat - ทางผ่าน [Official MV]", "Polycat"))
+        assertEquals("ฝนตกไหม" to "กิต Three Man Down", splitVideoTitle("ฝนตกไหม - กิต Three Man Down | The Wall Song ร้องข้ามกำแพง", "WorkpointOfficial"))
+        assertEquals("Mr. Brightside" to "The Killers", splitVideoTitle("The Killers - Mr. Brightside (Official Music Video)", "TheKillersMusic"))
+        // No separator: the cleaned title, the channel as artist.
+        assertEquals("Shape of You" to "Ed Sheeran", splitVideoTitle("Shape of You [Official Video]", "Ed Sheeran"))
+        assertEquals("ลมหายใจ" to "Bodyslam", splitVideoTitle("ลมหายใจ", "Bodyslam - Topic"))
+    }
+
     private fun tooLong(block: () -> Unit) =
         assertTrue(assertThrows(ImportException::class.java) { block() }.message!!.startsWith("วิดีโอยาวเกินไป"))
 }

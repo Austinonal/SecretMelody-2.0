@@ -1652,7 +1652,7 @@ private fun PermissionScreen(onAsk: () -> Unit) {
         Icon(Icons.Default.MusicNote, null, tint = AccentText, modifier = Modifier.size(64.dp))
         Spacer(Modifier.height(16.dp))
         Text(
-            "SecretMelody ต้องขอสิทธิ์อ่านไฟล์เพลงในเครื่องของคุณ", color = Color.White,
+            "Ditto ต้องขอสิทธิ์อ่านไฟล์เพลงในเครื่องของคุณ", color = Color.White,
             textAlign = TextAlign.Center, fontSize = 16.sp,
         )
         Spacer(Modifier.height(24.dp))

@@ -55,7 +55,7 @@ class PlayerWidget : AppWidgetProvider() {
 
         private fun views(context: Context, title: String?, artist: String?, playing: Boolean, art: Bitmap?, canResume: Boolean) =
             RemoteViews(context.packageName, R.layout.widget_player).apply {
-                setTextViewText(R.id.widget_title, title ?: "SecretMelody")
+                setTextViewText(R.id.widget_title, title ?: "Ditto")
                 setTextViewText(R.id.widget_artist, artist ?: "แตะเพื่อเปิดแอป")
                 if (art != null) setImageViewBitmap(R.id.widget_art, art) else setImageViewResource(R.id.widget_art, R.drawable.ic_widget_note)
                 setImageViewResource(R.id.widget_play, if (playing) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)

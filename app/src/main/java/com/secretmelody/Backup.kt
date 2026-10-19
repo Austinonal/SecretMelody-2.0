@@ -55,6 +55,6 @@ fun readBackup(input: InputStream, coversDir: File): BackupData {
             }
         }
     }
-    if (!marker || library == null) throw ImportException("ไฟล์นี้ไม่ใช่ไฟล์สำรองของ SecretMelody")
+    if (!marker || library == null) throw ImportException("ไฟล์นี้ไม่ใช่ไฟล์สำรองของ Ditto")
     return BackupData(library!!, edits ?: JSONObject())
 }

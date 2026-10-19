@@ -222,7 +222,7 @@ class ConvertService : Service() {
         val percent = Convert.state.percent
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.media3_notification_small_icon)
-            .setContentTitle("SecretMelody กำลังแปลงเพลง")
+            .setContentTitle("Ditto กำลังแปลงเพลง")
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

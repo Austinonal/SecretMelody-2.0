@@ -132,7 +132,7 @@ class PlaybackService : MediaLibraryService() {
                     session: MediaLibrarySession,
                     browser: MediaSession.ControllerInfo,
                     params: LibraryParams?,
-                ): ListenableFuture<LibraryResult<MediaItem>> = Futures.immediateFuture(LibraryResult.ofItem(folder(ROOT, "SecretMelody"), params))
+                ): ListenableFuture<LibraryResult<MediaItem>> = Futures.immediateFuture(LibraryResult.ofItem(folder(ROOT, "Ditto"), params))
 
                 override fun onGetChildren(
                     session: MediaLibrarySession,

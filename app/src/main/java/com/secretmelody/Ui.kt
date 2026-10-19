@@ -33,6 +33,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -61,6 +63,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.palette.graphics.Palette
 import androidx.activity.result.IntentSenderRequest
@@ -80,13 +83,18 @@ import java.io.File
 import java.time.LocalTime
 import kotlin.random.Random
 
-val Accent = Color(0xFFA77BFF)
+private const val LINK_COVER = "<link import>" // coverKey while cropping the cover of a song not converted yet
+
+// Viva Magenta (Pantone 18-1750). Too dark for small text on Bg (3.1:1), so text and icons use the lighter AccentText
+// (5.7:1); fills use Accent with white on top (6.0:1; black would be 3.5:1).
+val Accent = Color(0xFFBB2649)
+val AccentText = Color(0xFFE8607F)
 val Bg = Color(0xFF121212)
 val Surface2 = Color(0xFF242424)
 val Muted = Color(0xFFB3B3B3)
 private val Tile = Color(0xFF2A2A2A)
 private val TileColors = listOf(
-    Color(0xFF8E3FD6), Color(0xFFD6336C), Color(0xFF1E7A5A), Color(0xFF2F5BD3),
+    Color(0xFFBB2649), Color(0xFFD6336C), Color(0xFF1E7A5A), Color(0xFF2F5BD3),
     Color(0xFFC2521B), Color(0xFF4F6B7F), Color(0xFF8A2F5E), Color(0xFF4A7A2F),
 )
 
@@ -144,7 +152,14 @@ private fun greeting() = when (LocalTime.now().hour) {
 }
 
 @Composable
-fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIncomingHandled: () -> Unit = {}) {
+fun App(
+    player: Player?,
+    startTick: Int,
+    incoming: List<Uri> = emptyList(),
+    onIncomingHandled: () -> Unit = {},
+    sharedLink: String? = null,
+    onSharedLinkHandled: () -> Unit = {},
+) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(has(context, audioPermission())) }
     LaunchedEffect(startTick) { granted = has(context, audioPermission()) }
@@ -163,16 +178,15 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
     }
 
     val library = remember { Library(File(context.filesDir, "library.json")) }
-    val edits = remember { Edits(File(context.filesDir, "edits.json"), File(context.filesDir, "covers")) }
+    val edits = remember { Convert.edits(context) }
     val scope = rememberCoroutineScope()
     var reload by remember { mutableIntStateOf(0) } // bump after importing or deleting files
-    val tracks by produceState<List<Track>?>(null, startTick, reload) {
+    val tracks by produceState<List<Track>?>(null, startTick, reload, Convert.reload) {
         value = withContext(Dispatchers.IO) { loadTracks(context) }
     }
     var settingsPage by rememberSaveable { mutableStateOf("") } // "", "link", "storage" or "guide"
     val fileImport = remember { FileImportState() }
-    val linkImport = remember { LinkImportState() }
-    var linkJob by remember { mutableStateOf<Job?>(null) }
+    val linkImport = Convert.state // outlives this screen, so a conversion keeps going when the app is closed
     var editingId by rememberSaveable { mutableStateOf<Long?>(null) }
     var coverKey by rememberSaveable { mutableStateOf<String?>(null) } // song whose cover is being changed
     var coverStage by rememberSaveable { mutableStateOf("") } // "", "search" or "crop"
@@ -208,11 +222,48 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
     val albums = remember(list) { list.albums() }
     val artists = remember(list) { list.artists() }
     val current = ui?.mediaId?.toLongOrNull()?.let { byId[it] }
+        ?: ui?.mediaId?.let { player?.currentMediaItem?.let(::streamTrack) } // playing from YouTube
     val recentIds by produceState(emptyList<String>(), startTick, ui?.mediaId) {
         delay(500) // let the playback process write the play first
         value = withContext(Dispatchers.IO) { readRecent(context.filesDir) }
     }
     val recent = remember(recentIds, byId) { recentIds.mapNotNull { it.toLongOrNull()?.let(byId::get) }.take(9) }
+    val stats by produceState(emptyMap<String, SongStat>(), startTick, ui?.mediaId, settingsPage) {
+        value = withContext(Dispatchers.IO) { PlayStats.read(context.filesDir) }
+    }
+    val mostPlayedGroup = remember(list, stats) { TrackGroup("ฟังบ่อยที่สุด", "เพลย์ลิสต์อัตโนมัติ", mostPlayed(list, stats), false) }
+    val summary = remember(list, stats) { summarize(list, stats) }
+    var ytSignedIn by remember { mutableStateOf(YtAccount.isSignedIn(context)) }
+    var ytLibrary by remember { mutableStateOf<YtLibrary?>(null) }
+    LaunchedEffect(Unit) { ytLibrary = withContext(Dispatchers.IO) { YtAccount.read(context) } }
+    var ytSyncing by remember { mutableStateOf(false) }
+    var ytError by remember { mutableStateOf<String?>(null) }
+    val ytSync: () -> Unit = {
+        ytSyncing = true
+        ytError = null
+        scope.launch {
+            try {
+                ytLibrary = withContext(Dispatchers.IO) { YtAccount.sync(context) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ytError = (e as? ImportException)?.message ?: "ซิงก์ไม่สำเร็จ: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                ytSyncing = false
+            }
+        }
+    }
+    // Synced YouTube lists sit with the playlists; their songs play from YouTube.
+    val ytGroups = remember(ytLibrary) {
+        ytLibrary?.lists.orEmpty().map { TrackGroup(it.title, "YouTube • ${it.tracks.size} เพลง", it.tracks, false) }
+    }
+    var audio by remember { mutableStateOf(AudioStore.read(context.filesDir)) }
+    // Saved here, applied by the player (another process) now through a command and from the file when it restarts.
+    val setAudio: (AudioSettings) -> Unit = { a ->
+        audio = a
+        AudioStore.save(context.filesDir, a)
+        (player as? MediaController)?.sendCustomCommand(SessionCommand(CMD_AUDIO, Bundle.EMPTY), a.toBundle())
+    }
 
     val liked = TrackGroup(
         "เพลงที่ถูกใจ", "เพลย์ลิสต์ • ${library.liked.size} เพลง",
@@ -302,31 +353,20 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
             onIncomingHandled()
         }
     }
-    val startLinkImport: () -> Unit = {
-        linkImport.running = true
-        linkImport.error = null
-        linkImport.resultId = null
-        linkImport.done = 0
-        linkImport.total = 0
-        linkJob = scope.launch {
-            try {
-                val id = runInterruptible(Dispatchers.IO) {
-                    downloadAudio(context, linkImport.url) { done, total ->
-                        linkImport.done = done
-                        linkImport.total = total
-                    }
-                }
-                reload++
-                linkImport.resultId = id
-                linkImport.url = ""
-            } catch (e: CancellationException) {
-                linkImport.error = "ยกเลิกแล้ว"
-            } catch (e: ImportException) {
-                linkImport.error = e.message
-            } catch (e: Exception) {
-                linkImport.error = "นำเข้าไม่สำเร็จ: ${e.message ?: "ไม่ทราบสาเหตุ"}"
-            } finally {
-                linkImport.running = false
+    val startLinkImport: () -> Unit = { Convert.start(context) }
+    LaunchedEffect(sharedLink) {
+        val text = sharedLink ?: return@LaunchedEffect
+        onSharedLinkHandled()
+        val link = linkFromShare(text)
+        when {
+            link == null -> toast("ไม่พบลิงก์ในข้อความที่แชร์มา")
+            linkImport.running -> toast("กำลังแปลงเพลงอื่นอยู่ รอให้เสร็จก่อน")
+            else -> {
+                linkImport.url = link
+                linkImport.error = null
+                showNowPlaying = false; showQueue = false; opened = null; openedPlaylist = null; coverStage = ""
+                tab = 3
+                settingsPage = "link"
             }
         }
     }
@@ -480,7 +520,8 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
         } else {
             BackHandler { coverStage = ""; cropSource = null }
             CropScreen(source, onCancel = { coverStage = ""; cropSource = null }, onDone = { cropped ->
-                scope.launch {
+                if (key == LINK_COVER) linkImport.cover = cropped // not saved yet: applied when the song is converted
+                else scope.launch {
                     withContext(Dispatchers.IO) { edits.setCover(key, cropped) }
                     toast("เปลี่ยนปกแล้ว")
                 }
@@ -562,10 +603,51 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
                         linkImport, imported = linkImport.resultId?.let { byId[it] },
                         onBack = { settingsPage = "" },
                         onImport = startLinkImport,
-                        onCancel = { linkJob?.cancel() },
+                        onCancel = { Convert.cancel() },
+                        onAdjustCover = {
+                            linkImport.thumb?.let {
+                                coverKey = LINK_COVER
+                                cropSource = it
+                                coverStage = "crop"
+                            }
+                        },
                         onPlay = { onPlay(listOf(it), 0) },
                         onEdit = { editingId = it.id },
                     )
+                }
+                tab == 3 && settingsPage == "youtube" -> {
+                    BackHandler { settingsPage = "" }
+                    YoutubeAccountScreen(
+                        ytSignedIn, ytLibrary, ytSyncing, ytError,
+                        onSignIn = { settingsPage = "ytlogin" },
+                        onSync = ytSync,
+                        onSignOut = {
+                            YtAccount.signOut(context)
+                            ytSignedIn = false
+                            ytLibrary = null
+                        },
+                        onBack = { settingsPage = "" },
+                    )
+                }
+                tab == 3 && settingsPage == "ytlogin" -> {
+                    BackHandler { settingsPage = "youtube" }
+                    YoutubeSignInScreen(
+                        onDone = {
+                            ytSignedIn = true
+                            settingsPage = "youtube"
+                            ytSync()
+                        },
+                        onBack = { settingsPage = "youtube" },
+                    )
+                }
+                tab == 3 && settingsPage == "eq" -> {
+                    BackHandler { settingsPage = "" }
+                    val eqInfo = remember { readEqInfo(context.getSystemService(android.media.AudioManager::class.java)) }
+                    EqScreen(audio, eqInfo, setAudio, onBack = { settingsPage = "" })
+                }
+                tab == 3 && settingsPage == "stats" -> {
+                    BackHandler { settingsPage = "" }
+                    StatsScreen(summary, onBack = { settingsPage = "" }, onPlay = { t -> onPlay(summary.songs.map { it.first }, summary.songs.indexOfFirst { it.first == t }) })
                 }
                 tab == 3 && settingsPage == "storage" -> {
                     BackHandler { settingsPage = "" }
@@ -596,6 +678,18 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
                         onOpenGuide = { settingsPage = "guide" },
                         onExport = { exportBackup.launch("secretmelody-backup-${java.time.LocalDate.now()}.zip") },
                         onImport = { importBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
+                        audio = audio,
+                        onAudio = setAudio,
+                        onOpenEq = { settingsPage = "eq" },
+                        statsSummary = if (summary.plays == 0) "ยังไม่มีข้อมูล"
+                        else "ฟังไป ${formatListening(summary.seconds)} · ${summary.plays} ครั้ง",
+                        onOpenStats = { settingsPage = "stats" },
+                        youtubeSummary = when {
+                            !ytSignedIn -> "เข้าสู่ระบบเพื่อดึงเพลงที่ชอบและเพลย์ลิสต์มาฟัง"
+                            ytLibrary == null -> "เชื่อมต่อแล้ว ยังไม่ได้ซิงก์"
+                            else -> "เชื่อมต่อแล้ว · ${ytLibrary!!.lists.sumOf { it.tracks.size }} เพลง"
+                        },
+                        onOpenYoutube = { settingsPage = "youtube" },
                     )
                 }
                 list.isEmpty() && tab != 2 -> EmptyLibrary()
@@ -603,11 +697,22 @@ fun App(player: Player?, startTick: Int, incoming: List<Uri> = emptyList(), onIn
                     list, current?.id, homeState, recent,
                     refreshing = refreshing,
                     onRefresh = { refreshing = true; reload++ },
-                    shortcuts = (listOfNotNull(liked.takeIf { it.tracks.isNotEmpty() }) + playlistGroups + albums).take(6),
+                    shortcuts = (listOfNotNull(liked.takeIf { it.tracks.isNotEmpty() }, mostPlayedGroup.takeIf { it.tracks.isNotEmpty() }) + playlistGroups + albums).take(6),
                     albums, artists, onPlay, onShuffle, actions, onOpen,
                 )
-                tab == 1 -> SearchScreen(list, artists, current?.id, query, { query = it }, onPlay, actions, onOpen)
-                else -> LibraryScreen(liked, playlistGroups, artists, albums, onOpen, onCreate = { newPlaylist(null) })
+                tab == 1 -> SearchScreen(
+                    list, artists, current?.id, query, { query = it }, onPlay, actions, onOpen,
+                    onDownload = { t ->
+                        if (linkImport.running) toast("กำลังแปลงเพลงอื่นอยู่ รอให้เสร็จก่อน")
+                        else {
+                            linkImport.url = "https://www.youtube.com/watch?v=${t.videoId}"
+                            linkImport.error = null
+                            tab = 3
+                            settingsPage = "link"
+                        }
+                    },
+                )
+                else -> LibraryScreen(liked, playlistGroups + ytGroups, artists, albums, onOpen, onCreate = { newPlaylist(null) })
             }
         }
         if (player != null && ui != null && current != null) {
@@ -908,13 +1013,21 @@ private fun CollectionScreen(
                         Spacer(Modifier.height(16.dp))
                         Button(
                             onClick = onFindSongs,
-                            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
                         ) { Text("หาเพลง", fontWeight = FontWeight.Bold) }
                     }
                 }
             }
         }
+        // A multi-disc album gets a heading at the start of each disc.
+        val discs = !g.isArtist && g.playlistId == null && g.tracks.map { it.disc }.distinct().size > 1
         itemsIndexed(g.tracks, key = { _, t -> t.id }) { i, t ->
+            if (discs && (i == 0 || g.tracks[i - 1].disc != t.disc)) {
+                Text(
+                    if (t.disc > 0) "แผ่นที่ ${t.disc}" else "ไม่ทราบแผ่น", color = Muted, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                )
+            }
             if (editing) {
                 TrackRow(t, t.id == currentId, onClick = {}, actions) {
                     // Buttons instead of drag-to-reorder: one tap each, and easy to hit.
@@ -949,7 +1062,7 @@ private fun PlayButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.v
         onClick = onClick,
         modifier = Modifier.size(52.dp).clip(CircleShape).background(Accent),
     ) {
-        Icon(icon, label, tint = Color.Black, modifier = Modifier.size(28.dp))
+        Icon(icon, label, tint = Color.White, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -963,8 +1076,17 @@ private fun SearchScreen(
     onPlay: (List<Track>, Int) -> Unit,
     actions: TrackActions,
     onOpen: (TrackGroup) -> Unit,
+    onDownload: (Track) -> Unit = {},
 ) {
     val results = remember(tracks, query) { tracks.search(query) }
+    // YouTube is searched once typing pauses; null = still searching, an error shows as a message.
+    var online by remember { mutableStateOf<Result<List<Track>>?>(null) }
+    LaunchedEffect(query) {
+        online = null
+        if (query.isBlank()) return@LaunchedEffect
+        delay(600)
+        online = withContext(Dispatchers.IO) { runCatching { searchYoutube(query.trim()) } }
+    }
     Column(Modifier.fillMaxSize()) {
         Text(
             "ค้นหา", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold,
@@ -1011,12 +1133,40 @@ private fun SearchScreen(
                     items(artists) { g -> BrowseTile(g, onOpen) }
                 }
             }
-            results.isEmpty() -> Text(
-                "ไม่พบ \"$query\"", color = Muted, modifier = Modifier.padding(16.dp),
-            )
             else -> LazyColumn(Modifier.fillMaxSize()) {
+                if (results.isEmpty()) item { Text("ไม่พบ \"$query\" ในเครื่อง", color = Muted, modifier = Modifier.padding(16.dp)) }
                 itemsIndexed(results, key = { _, t -> t.id }) { i, t ->
                     TrackRow(t, t.id == currentId, onClick = { onPlay(results, i) }, actions)
+                }
+                item {
+                    Text(
+                        "จาก YouTube", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
+                    )
+                }
+                val found = online
+                when {
+                    found == null -> item {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = AccentText, strokeWidth = 2.dp)
+                            Text("กำลังค้นหา…", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(start = 10.dp))
+                        }
+                    }
+                    found.isFailure -> item {
+                        Text("ค้นหาบน YouTube ไม่ได้ ตรวจสอบอินเทอร์เน็ต", color = Muted, modifier = Modifier.padding(16.dp))
+                    }
+                    else -> {
+                        val streams = found.getOrThrow()
+                        if (streams.isEmpty()) item { Text("ไม่พบบน YouTube", color = Muted, modifier = Modifier.padding(16.dp)) }
+                        itemsIndexed(streams, key = { _, t -> t.key }) { i, t ->
+                            // Plays from YouTube without saving; the button converts it into the library instead.
+                            TrackRow(t, t.id == currentId, onClick = { onPlay(streams, i) }, actions) {
+                                IconButton(onClick = { onDownload(t) }) {
+                                    Icon(Icons.Default.Download, "ดาวน์โหลดเป็น MP3", tint = Muted)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1076,12 +1226,12 @@ private fun TrackRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (playing) {
                     Icon(
-                        Icons.Default.GraphicEq, "กำลังเล่น", tint = Accent,
+                        Icons.Default.GraphicEq, "กำลังเล่น", tint = AccentText,
                         modifier = Modifier.padding(end = 4.dp).size(16.dp),
                     )
                 }
                 Text(
-                    t.title, color = if (playing) Accent else Color.White, fontSize = 16.sp,
+                    t.title, color = if (playing) AccentText else Color.White, fontSize = 16.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -1090,7 +1240,7 @@ private fun TrackRow(
         if (trailing != null) {
             trailing()
         } else {
-            if (liked) Icon(Icons.Default.Favorite, "ถูกใจแล้ว", tint = Accent, modifier = Modifier.size(18.dp))
+            if (liked) Icon(Icons.Default.Favorite, "ถูกใจแล้ว", tint = AccentText, modifier = Modifier.size(18.dp))
             Box {
                 IconButton(onClick = { menu = true }) {
                     Icon(Icons.Default.MoreVert, "ตัวเลือกของ ${t.title}", tint = Muted)
@@ -1123,7 +1273,7 @@ private fun LikeButton(liked: Boolean, onLike: () -> Unit, size: Int = 24) {
         Icon(
             if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
             if (liked) "ลบออกจากเพลงที่ถูกใจ" else "เพิ่มลงเพลงที่ถูกใจ",
-            tint = if (liked) Accent else Color.White,
+            tint = if (liked) AccentText else Color.White,
             modifier = Modifier.size(size.dp),
         )
     }
@@ -1153,7 +1303,7 @@ private fun MiniPlayer(t: Track, ui: PlayerUi, player: Player, liked: Boolean, o
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            LikeButton(liked, onLike)
+            if (!t.isStream) LikeButton(liked, onLike) // a liked stream would have nowhere to show
             IconButton(onClick = { player.togglePlay() }) {
                 Icon(
                     if (ui.showPlay) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -1171,6 +1321,71 @@ private fun MiniPlayer(t: Track, ui: PlayerUi, player: Player, liked: Boolean, o
     }
 }
 
+/** The song's lyrics in place of the cover: the line being sung is highlighted and kept in view; tap a line to jump. */
+@Composable
+private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier) {
+    val context = LocalContext.current
+    val found by produceState<Lyrics?>(null, t.key, t.title, t.artist) {
+        value = null
+        value = withContext(Dispatchers.IO) {
+            LyricsCache.read(context.filesDir, t)
+                ?: runCatching { fetchLyrics(t) }.getOrNull()?.also { LyricsCache.save(context.filesDir, t, it) }
+                ?: Lyrics(null, null)
+        }
+    }
+    var offset by remember(t.key, t.title) { mutableLongStateOf(LyricsCache.offset(context.filesDir, t)) }
+    Column(modifier) {
+        LyricsView(found, posMs - offset, { onSeek(it + offset) }, Modifier.weight(1f).fillMaxWidth())
+        if (found?.synced != null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                fun shift(by: Long) { offset += by; LyricsCache.saveOffset(context.filesDir, t, offset) }
+                TextButton(onClick = { shift(-500) }) { Text("เนื้อเพลงเร็วขึ้น", color = Muted) }
+                Text(if (offset == 0L) "ตรงต้นฉบับ" else "%+.1f วิ".format(offset / 1000.0), color = Color.White, fontSize = 13.sp)
+                TextButton(onClick = { shift(500) }) { Text("เนื้อเพลงช้าลง", color = Muted) }
+            }
+        }
+    }
+}
+
+/** null = still looking. */
+@Composable
+fun LyricsView(lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier) {
+    Box(modifier.padding(vertical = 16.dp)) {
+        when {
+            lyrics == null -> Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                Text("กำลังหาเนื้อเพลง…", color = Muted, fontSize = 15.sp, modifier = Modifier.padding(start = 12.dp))
+            }
+            lyrics.synced != null -> {
+                val lines = lyrics.synced
+                // shortcut: position is polled twice a second, so the highlight can trail by up to half a second.
+                val now = currentLine(lines, posMs)
+                val list = rememberLazyListState()
+                LaunchedEffect(now) { if (now >= 0) list.animateScrollToItem((now - 2).coerceAtLeast(0)) }
+                LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(lines) { i, line ->
+                        Text(
+                            line.text.ifBlank { "♪" },
+                            color = if (i == now) Color.White else Color.White.copy(alpha = 0.55f),
+                            fontSize = if (i == now) 24.sp else 21.sp,
+                            fontWeight = FontWeight.Bold, lineHeight = 30.sp,
+                            modifier = Modifier.fillMaxWidth().clickable { onSeek(line.ms) }.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+            lyrics.plain != null -> Text(
+                lyrics.plain, color = Color.White, fontSize = 19.sp, lineHeight = 30.sp,
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            )
+            else -> Text(
+                "ไม่พบเนื้อเพลงของเพลงนี้\nลองแก้ชื่อเพลงหรือศิลปินให้ตรงกับต้นฉบับ แล้วเปิดอีกครั้ง",
+                color = Muted, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.align(Alignment.Center),
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NowPlaying(
@@ -1184,11 +1399,12 @@ private fun NowPlaying(
     onSleep: () -> Unit,
     onClose: () -> Unit,
 ) {
-    val (pos, dur) = rememberProgress(player)
+    val (pos, dur) = rememberProgress(player, 150) // fast enough for lyrics to change on the beat
     val total = if (dur > 0) dur else t.durationMs
     var drag by remember { mutableStateOf<Float?>(null) }
     val max = total.coerceAtLeast(1L).toFloat()
     val shown = drag ?: pos.coerceAtMost(total).toFloat()
+    var showLyrics by rememberSaveable { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxSize()
@@ -1207,12 +1423,21 @@ private fun NowPlaying(
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.width(48.dp))
+            IconButton(onClick = { showLyrics = !showLyrics }) {
+                Icon(
+                    Icons.Default.Lyrics, if (showLyrics) "ซ่อนเนื้อเพลง" else "เนื้อเพลง",
+                    tint = if (showLyrics) AccentText else Color.White,
+                )
+            }
         }
-        Spacer(Modifier.weight(1f))
-        val cover = RoundedCornerShape(8.dp)
-        Artwork(t, Modifier.fillMaxWidth().aspectRatio(1f).shadow(20.dp, cover), px = 1000, shape = cover)
-        Spacer(Modifier.weight(1f))
+        if (showLyrics) {
+            LyricsPane(t, pos, onSeek = { player.seekTo(it) }, modifier = Modifier.weight(2f).fillMaxWidth())
+        } else {
+            Spacer(Modifier.weight(1f))
+            val cover = RoundedCornerShape(8.dp)
+            Artwork(t, Modifier.fillMaxWidth().aspectRatio(1f).shadow(20.dp, cover), px = 1000, shape = cover)
+            Spacer(Modifier.weight(1f))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
@@ -1221,7 +1446,7 @@ private fun NowPlaying(
                 )
                 Text(t.artist, color = Muted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            LikeButton(liked, onLike, size = 28)
+            if (!t.isStream) LikeButton(liked, onLike, size = 28)
         }
         Spacer(Modifier.height(12.dp))
         Slider(
@@ -1256,7 +1481,7 @@ private fun NowPlaying(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { player.shuffleModeEnabled = !ui.shuffle }) {
-                Icon(Icons.Default.Shuffle, if (ui.shuffle) "ปิดการสุ่ม" else "สุ่ม", tint = if (ui.shuffle) Accent else Color.White)
+                Icon(Icons.Default.Shuffle, if (ui.shuffle) "ปิดการสุ่ม" else "สุ่ม", tint = if (ui.shuffle) AccentText else Color.White)
             }
             IconButton(onClick = { player.seekToPrevious() }, modifier = Modifier.size(56.dp)) {
                 Icon(Icons.Default.SkipPrevious, "เพลงก่อนหน้า", tint = Color.White, modifier = Modifier.size(36.dp))
@@ -1284,7 +1509,7 @@ private fun NowPlaying(
                 Icon(
                     if (ui.repeat == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
                     "เล่นซ้ำ",
-                    tint = if (ui.repeat == Player.REPEAT_MODE_OFF) Color.White else Accent,
+                    tint = if (ui.repeat == Player.REPEAT_MODE_OFF) Color.White else AccentText,
                 )
             }
         }
@@ -1297,9 +1522,18 @@ private fun NowPlaying(
                 else -> null
             }
             IconButton(onClick = onSleep) {
-                Icon(Icons.Default.Bedtime, "ตั้งเวลาปิดเพลง", tint = if (label != null) Accent else Color.White)
+                Icon(Icons.Default.Bedtime, "ตั้งเวลาปิดเพลง", tint = if (label != null) AccentText else Color.White)
             }
-            if (label != null) Text(label, color = Accent, fontSize = 13.sp)
+            if (label != null) Text(label, color = AccentText, fontSize = 13.sp)
+            Spacer(Modifier.weight(1f))
+            // Speed and pitch move together, like the slowed / nightcore versions people upload.
+            listOf(0.8f to "Slowed", 1f to "ปกติ", 1.25f to "Nightcore").forEach { (s, name) ->
+                val on = ui.speed == s
+                TextButton(
+                    onClick = { player.playbackParameters = PlaybackParameters(s, s) },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) { Text(name, color = if (on) AccentText else Muted, fontSize = 13.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal) }
+            }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onQueue) {
                 Icon(Icons.AutoMirrored.Filled.QueueMusic, "คิว", tint = Color.White)
@@ -1348,14 +1582,14 @@ private fun PermissionScreen(onAsk: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Default.MusicNote, null, tint = Accent, modifier = Modifier.size(64.dp))
+        Icon(Icons.Default.MusicNote, null, tint = AccentText, modifier = Modifier.size(64.dp))
         Spacer(Modifier.height(16.dp))
         Text(
             "SecretMelody ต้องขอสิทธิ์อ่านไฟล์เพลงในเครื่องของคุณ", color = Color.White,
             textAlign = TextAlign.Center, fontSize = 16.sp,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onAsk, colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black)) {
+        Button(onClick = onAsk, colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White)) {
             Text("อนุญาต", fontWeight = FontWeight.Bold)
         }
         TextButton(onClick = {

@@ -19,6 +19,7 @@ import java.net.URLDecoder
 private val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "wma")
 private const val MAX_DOWNLOAD_BYTES = 300L * 1024 * 1024
 private const val MUSIC_FOLDER = "Music/SecretMelody"
+private const val MOVIES_FOLDER = "Movies/SecretMelody"
 
 /** Shown to the user as is, so keep these readable. */
 class ImportException(message: String) : Exception(message)
@@ -42,13 +43,17 @@ fun fileNameFor(url: String, contentDisposition: String?, contentType: String?):
     val fromHeader = contentDisposition?.let { Regex("""filename\*?=(?:UTF-8'')?"?([^";]+)"?""", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1) }
     var name = fromHeader ?: url.substringBefore('?').substringAfterLast('/')
     name = runCatching { URLDecoder.decode(name, "UTF-8") }.getOrDefault(name)
-    name = name.replace(Regex("""[\\/:*?"<>|]"""), "_").trim().ifBlank { "เพลงที่นำเข้า" }
+    name = safeFileName(name)
     if (!isAudioName(name)) {
         val ext = contentType?.substringBefore(';')?.trim()?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
         name += "." + (ext?.takeIf { it in AUDIO_EXTENSIONS } ?: "mp3")
     }
     return name
 }
+
+/** A name MediaStore accepts: no path or reserved characters, no control characters, at most 150 characters. */
+fun safeFileName(raw: String): String =
+    raw.replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), "_").trim().take(150).trim().ifBlank { "เพลงที่นำเข้า" }
 
 fun mimeFor(name: String): String =
     MimeTypeMap.getSingleton().getMimeTypeFromExtension(extensionOf(name)) ?: "audio/mpeg"
@@ -59,21 +64,26 @@ fun formatSize(bytes: Long): String = when {
     else -> "${bytes / 1024} KB"
 }
 
-/** Writes a new song into Music/SecretMelody through MediaStore (no storage permission needed). Returns its MediaStore id. */
-private fun saveToMusic(context: Context, name: String, write: (OutputStream) -> Unit): Long {
+/**
+ * Writes a new song into Music/SecretMelody (or, with [video], a video into Movies/SecretMelody) through MediaStore
+ * (no storage permission needed). Returns its MediaStore id.
+ */
+internal fun saveToMusic(context: Context, name: String, video: Boolean = false, write: (OutputStream) -> Unit): Long {
     val resolver = context.contentResolver
     val values = ContentValues().apply {
-        put(MediaStore.Audio.Media.DISPLAY_NAME, name)
-        put(MediaStore.Audio.Media.MIME_TYPE, mimeFor(name))
-        put(MediaStore.Audio.Media.RELATIVE_PATH, MUSIC_FOLDER)
-        put(MediaStore.Audio.Media.IS_MUSIC, 1)
-        put(MediaStore.Audio.Media.IS_PENDING, 1)
+        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        put(MediaStore.MediaColumns.MIME_TYPE, mimeFor(name))
+        put(MediaStore.MediaColumns.RELATIVE_PATH, if (video) MOVIES_FOLDER else MUSIC_FOLDER)
+        if (!video) put(MediaStore.Audio.Media.IS_MUSIC, 1)
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
     }
-    val uri = resolver.insert(MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
+    val collection = if (video) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    else MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    val uri = resolver.insert(collection, values)
         ?: throw ImportException("สร้างไฟล์ในเครื่องไม่ได้ พื้นที่อาจเต็ม")
     try {
         (resolver.openOutputStream(uri) ?: throw ImportException("เขียนไฟล์ไม่ได้")).use(write)
-        resolver.update(uri, ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) }, null, null)
+        resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
     } catch (e: Throwable) {
         runCatching { resolver.delete(uri, null, null) } // never leave a half-written song behind
         throw e

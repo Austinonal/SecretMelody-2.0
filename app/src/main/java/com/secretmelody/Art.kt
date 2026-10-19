@@ -22,7 +22,9 @@ suspend fun loadArt(context: Context, t: Track, px: Int): Bitmap? {
     val bitmap = withContext(Dispatchers.IO) {
         runCatching {
             val picked = t.coverPath
-            if (picked != null) {
+            if (picked == null && t.remoteArt != null) {
+                downloadBitmap(t.remoteArt) // a song played from YouTube
+            } else if (picked != null) {
                 val opts = BitmapFactory.Options().apply { inSampleSize = (800 / px).coerceAtLeast(1) }
                 BitmapFactory.decodeFile(picked, opts)
             } else {

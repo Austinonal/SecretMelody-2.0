@@ -180,7 +180,7 @@ fun CropScreen(source: Bitmap, onCancel: () -> Unit, onDone: (Bitmap) -> Unit) {
             Button(
                 onClick = { onDone(cropBitmap(source, rect)) },
                 modifier = Modifier.weight(1f).heightIn(min = 52.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
             ) { Text("ใช้รูปนี้", fontWeight = FontWeight.Bold) }
         }
     }

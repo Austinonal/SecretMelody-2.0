@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -24,6 +25,7 @@ class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
     private var startTick by mutableIntStateOf(0) // bumps on every return to the app: re-check permission, rescan files
     private var incoming by mutableStateOf<List<Uri>>(emptyList()) // audio files shared into the app, waiting to be imported
+    private var sharedLink by mutableStateOf<String?>(null) // a link shared into the app, waiting for the link import screen
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,10 +33,16 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
-        if (savedInstanceState == null) incoming = sharedAudio(intent)
+        if (savedInstanceState == null) {
+            incoming = sharedAudio(intent)
+            sharedLink = sharedText(intent)
+        }
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Surface2)) {
-                App(controller, startTick, incoming, onIncomingHandled = { incoming = emptyList() })
+            MaterialTheme(colorScheme = darkColorScheme(primary = AccentText, onPrimary = Color.Black, background = Bg, surface = Surface2)) {
+                App(
+                    controller, startTick, incoming, onIncomingHandled = { incoming = emptyList() },
+                    sharedLink = sharedLink, onSharedLinkHandled = { sharedLink = null },
+                )
             }
         }
     }
@@ -42,7 +50,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         sharedAudio(intent).takeIf { it.isNotEmpty() }?.let { incoming = it }
+        sharedText(intent)?.let { sharedLink = it }
     }
+
+    /** Text from "Share > SecretMelody", e.g. a YouTube link. */
+    private fun sharedText(intent: Intent): String? =
+        if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") intent.getStringExtra(Intent.EXTRA_TEXT) else null
 
     /** Files from "Share > SecretMelody" or "Open with > SecretMelody". */
     @Suppress("DEPRECATION")

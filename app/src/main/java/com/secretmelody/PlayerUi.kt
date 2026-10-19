@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -25,8 +26,11 @@ class PlayerUi(private val player: Player) {
         private set
     var version by mutableIntStateOf(0) // bumps on every player event, so the queue screen re-reads the timeline
         private set
+    var speed by mutableFloatStateOf(1f)
+        private set
 
     fun sync() {
+        speed = player.playbackParameters.speed
         mediaId = player.currentMediaItem?.mediaId
         showPlay = !player.playWhenReady ||
             player.playbackState == Player.STATE_IDLE ||
@@ -57,14 +61,14 @@ fun rememberPlayerUi(player: Player): PlayerUi {
 
 /** Position and duration in ms, polled twice a second. Duration is 0 while unknown. */
 @Composable
-fun rememberProgress(player: Player): Pair<Long, Long> {
+fun rememberProgress(player: Player, everyMs: Long = 500): Pair<Long, Long> {
     var pos by remember { mutableLongStateOf(0L) }
     var dur by remember { mutableLongStateOf(0L) }
     LaunchedEffect(player) {
         while (true) {
             pos = player.currentPosition
             dur = player.duration.coerceAtLeast(0L)
-            delay(500)
+            delay(everyMs)
         }
     }
     return pos to dur

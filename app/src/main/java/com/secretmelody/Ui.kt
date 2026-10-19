@@ -33,6 +33,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -225,6 +227,18 @@ fun App(
         value = withContext(Dispatchers.IO) { readRecent(context.filesDir) }
     }
     val recent = remember(recentIds, byId) { recentIds.mapNotNull { it.toLongOrNull()?.let(byId::get) }.take(9) }
+    val stats by produceState(emptyMap<String, SongStat>(), startTick, ui?.mediaId, settingsPage) {
+        value = withContext(Dispatchers.IO) { PlayStats.read(context.filesDir) }
+    }
+    val mostPlayedGroup = remember(list, stats) { TrackGroup("ฟังบ่อยที่สุด", "เพลย์ลิสต์อัตโนมัติ", mostPlayed(list, stats), false) }
+    val summary = remember(list, stats) { summarize(list, stats) }
+    var audio by remember { mutableStateOf(AudioStore.read(context.filesDir)) }
+    // Saved here, applied by the player (another process) now through a command and from the file when it restarts.
+    val setAudio: (AudioSettings) -> Unit = { a ->
+        audio = a
+        AudioStore.save(context.filesDir, a)
+        (player as? MediaController)?.sendCustomCommand(SessionCommand(CMD_AUDIO, Bundle.EMPTY), a.toBundle())
+    }
 
     val liked = TrackGroup(
         "เพลงที่ถูกใจ", "เพลย์ลิสต์ • ${library.liked.size} เพลง",
@@ -576,6 +590,15 @@ fun App(
                         onEdit = { editingId = it.id },
                     )
                 }
+                tab == 3 && settingsPage == "eq" -> {
+                    BackHandler { settingsPage = "" }
+                    val eqInfo = remember { readEqInfo(context.getSystemService(android.media.AudioManager::class.java)) }
+                    EqScreen(audio, eqInfo, setAudio, onBack = { settingsPage = "" })
+                }
+                tab == 3 && settingsPage == "stats" -> {
+                    BackHandler { settingsPage = "" }
+                    StatsScreen(summary, onBack = { settingsPage = "" }, onPlay = { t -> onPlay(summary.songs.map { it.first }, summary.songs.indexOfFirst { it.first == t }) })
+                }
                 tab == 3 && settingsPage == "storage" -> {
                     BackHandler { settingsPage = "" }
                     val free = remember(reload) { runCatching { StatFs(Environment.getExternalStorageDirectory().path).availableBytes }.getOrDefault(0L) }
@@ -605,6 +628,12 @@ fun App(
                         onOpenGuide = { settingsPage = "guide" },
                         onExport = { exportBackup.launch("secretmelody-backup-${java.time.LocalDate.now()}.zip") },
                         onImport = { importBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
+                        audio = audio,
+                        onAudio = setAudio,
+                        onOpenEq = { settingsPage = "eq" },
+                        statsSummary = if (summary.plays == 0) "ยังไม่มีข้อมูล"
+                        else "ฟังไป ${formatListening(summary.seconds)} · ${summary.plays} ครั้ง",
+                        onOpenStats = { settingsPage = "stats" },
                     )
                 }
                 list.isEmpty() && tab != 2 -> EmptyLibrary()
@@ -612,7 +641,7 @@ fun App(
                     list, current?.id, homeState, recent,
                     refreshing = refreshing,
                     onRefresh = { refreshing = true; reload++ },
-                    shortcuts = (listOfNotNull(liked.takeIf { it.tracks.isNotEmpty() }) + playlistGroups + albums).take(6),
+                    shortcuts = (listOfNotNull(liked.takeIf { it.tracks.isNotEmpty() }, mostPlayedGroup.takeIf { it.tracks.isNotEmpty() }) + playlistGroups + albums).take(6),
                     albums, artists, onPlay, onShuffle, actions, onOpen,
                 )
                 tab == 1 -> SearchScreen(list, artists, current?.id, query, { query = it }, onPlay, actions, onOpen)
@@ -1180,6 +1209,60 @@ private fun MiniPlayer(t: Track, ui: PlayerUi, player: Player, liked: Boolean, o
     }
 }
 
+/** The song's lyrics in place of the cover: the line being sung is highlighted and kept in view; tap a line to jump. */
+@Composable
+private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier) {
+    val context = LocalContext.current
+    val found by produceState<Lyrics?>(null, t.key, t.title, t.artist) {
+        value = null
+        value = withContext(Dispatchers.IO) {
+            LyricsCache.read(context.filesDir, t)
+                ?: runCatching { fetchLyrics(t) }.getOrNull()?.also { LyricsCache.save(context.filesDir, t, it) }
+                ?: Lyrics(null, null)
+        }
+    }
+    LyricsView(found, posMs, onSeek, modifier)
+}
+
+/** null = still looking. */
+@Composable
+fun LyricsView(lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier) {
+    Box(modifier.padding(vertical = 16.dp)) {
+        when {
+            lyrics == null -> Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                Text("กำลังหาเนื้อเพลง…", color = Muted, fontSize = 15.sp, modifier = Modifier.padding(start = 12.dp))
+            }
+            lyrics.synced != null -> {
+                val lines = lyrics.synced
+                // shortcut: position is polled twice a second, so the highlight can trail by up to half a second.
+                val now = currentLine(lines, posMs)
+                val list = rememberLazyListState()
+                LaunchedEffect(now) { if (now >= 0) list.animateScrollToItem((now - 2).coerceAtLeast(0)) }
+                LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(lines) { i, line ->
+                        Text(
+                            line.text.ifBlank { "♪" },
+                            color = if (i == now) Color.White else Color.White.copy(alpha = 0.55f),
+                            fontSize = if (i == now) 24.sp else 21.sp,
+                            fontWeight = FontWeight.Bold, lineHeight = 30.sp,
+                            modifier = Modifier.fillMaxWidth().clickable { onSeek(line.ms) }.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+            lyrics.plain != null -> Text(
+                lyrics.plain, color = Color.White, fontSize = 19.sp, lineHeight = 30.sp,
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            )
+            else -> Text(
+                "ไม่พบเนื้อเพลงของเพลงนี้\nลองแก้ชื่อเพลงหรือศิลปินให้ตรงกับต้นฉบับ แล้วเปิดอีกครั้ง",
+                color = Muted, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.align(Alignment.Center),
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NowPlaying(
@@ -1198,6 +1281,7 @@ private fun NowPlaying(
     var drag by remember { mutableStateOf<Float?>(null) }
     val max = total.coerceAtLeast(1L).toFloat()
     val shown = drag ?: pos.coerceAtMost(total).toFloat()
+    var showLyrics by rememberSaveable { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxSize()
@@ -1216,12 +1300,21 @@ private fun NowPlaying(
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.width(48.dp))
+            IconButton(onClick = { showLyrics = !showLyrics }) {
+                Icon(
+                    Icons.Default.Lyrics, if (showLyrics) "ซ่อนเนื้อเพลง" else "เนื้อเพลง",
+                    tint = if (showLyrics) AccentText else Color.White,
+                )
+            }
         }
-        Spacer(Modifier.weight(1f))
-        val cover = RoundedCornerShape(8.dp)
-        Artwork(t, Modifier.fillMaxWidth().aspectRatio(1f).shadow(20.dp, cover), px = 1000, shape = cover)
-        Spacer(Modifier.weight(1f))
+        if (showLyrics) {
+            LyricsPane(t, pos, onSeek = { player.seekTo(it) }, modifier = Modifier.weight(2f).fillMaxWidth())
+        } else {
+            Spacer(Modifier.weight(1f))
+            val cover = RoundedCornerShape(8.dp)
+            Artwork(t, Modifier.fillMaxWidth().aspectRatio(1f).shadow(20.dp, cover), px = 1000, shape = cover)
+            Spacer(Modifier.weight(1f))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(

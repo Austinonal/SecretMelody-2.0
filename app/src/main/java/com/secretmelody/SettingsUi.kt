@@ -7,6 +7,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -101,12 +108,22 @@ private fun SectionLabel(text: String) {
 
 /** A tappable settings line, at least 64dp tall so it is easy to hit. */
 @Composable
-private fun SettingRow(icon: ImageVector, title: String, subtitle: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun SettingRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    enabled: Boolean = true,
+    checked: Boolean? = null, // set = an on/off row with a switch, toggled by tapping anywhere on it
+    onClick: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .clickable(enabled = enabled, onClick = onClick)
+            .then(
+                if (checked == null) Modifier.clickable(enabled = enabled, onClick = onClick)
+                else Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { onClick() }),
+            )
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -118,7 +135,11 @@ private fun SettingRow(icon: ImageVector, title: String, subtitle: String, enabl
             Text(title, color = Color.White, fontSize = 16.sp)
             Text(subtitle, color = Muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Icon(Icons.Default.ChevronRight, null, tint = Muted)
+        if (checked == null) Icon(Icons.Default.ChevronRight, null, tint = Muted)
+        else Switch(
+            checked = checked, onCheckedChange = null,
+            colors = SwitchDefaults.colors(checkedTrackColor = Accent, checkedThumbColor = Color.White),
+        )
     }
 }
 
@@ -135,6 +156,11 @@ fun SettingsScreen(
     onOpenGuide: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
+    audio: AudioSettings = AudioSettings(),
+    onAudio: (AudioSettings) -> Unit = {},
+    onOpenEq: () -> Unit = {},
+    statsSummary: String = "",
+    onOpenStats: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(
@@ -161,7 +187,18 @@ fun SettingsScreen(
                 Text(text, color = Color.White, fontSize = 14.sp)
             }
         }
+        SectionLabel("เสียง")
+        SettingRow(
+            Icons.Default.GraphicEq, "ข้ามช่วงเงียบ", "ตัดช่วงเงียบตอนต้น ตอนท้าย และระหว่างเพลงออกขณะเล่น",
+            checked = audio.skipSilence, onClick = { onAudio(audio.copy(skipSilence = !audio.skipSilence)) },
+        )
+        SettingRow(
+            Icons.AutoMirrored.Filled.VolumeUp, "ปรับเสียงให้ดังใกล้กัน", "เพลงที่อัดมาเบาจะดังขึ้น เพลงที่ดังจะนุ่มลง ไม่ต้องคอยปรับเสียงเอง",
+            checked = audio.evenVolume, onClick = { onAudio(audio.copy(evenVolume = !audio.evenVolume)) },
+        )
+        SettingRow(Icons.Default.Equalizer, "อีควอไลเซอร์", if (audio.eqOn) "เปิดอยู่" else "ปิดอยู่", onClick = onOpenEq)
         SectionLabel("จัดการ")
+        SettingRow(Icons.Default.Leaderboard, "สถิติการฟัง", statsSummary, onClick = onOpenStats)
         SettingRow(Icons.Default.Storage, "พื้นที่ใช้งาน", storageSummary, onClick = onOpenStorage)
         SectionLabel("เล่นเพลงเบื้องหลัง")
         SettingRow(
@@ -602,6 +639,109 @@ private fun SpotifyMatches(state: LinkImportState, onRetry: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** The phone's own equalizer: on/off, its presets, and one slider per band. */
+@Composable
+fun EqScreen(audio: AudioSettings, info: EqInfo?, onAudio: (AudioSettings) -> Unit, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        PageHeader("อีควอไลเซอร์", onBack)
+        if (info == null || info.bandHz.isEmpty()) {
+            Text("มือถือเครื่องนี้ไม่มีอีควอไลเซอร์ให้แอปใช้", color = Muted, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
+            return@Column
+        }
+        // Edited here, sent when a slider is let go: a message per drag frame would flood the player.
+        var levels by remember(audio.eqLevels) { mutableStateOf(audio.eqLevels.take(info.bandHz.size).ifEmpty { info.bandHz.map { 0 } }) }
+        val commit = { l: List<Int> -> onAudio(audio.copy(eqOn = true, eqLevels = l)) }
+        SettingRow(
+            Icons.Default.Equalizer, "ใช้อีควอไลเซอร์", "ปรับเสียงทุ้ม กลาง แหลม ให้ถูกหูหรือเข้ากับหูฟัง",
+            checked = audio.eqOn, onClick = { onAudio(audio.copy(eqOn = !audio.eqOn, eqLevels = levels)) },
+        )
+        if (info.presets.isNotEmpty()) {
+            SectionLabel("แบบสำเร็จรูป")
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(info.presets) { (name, preset) ->
+                    FilterChip(
+                        selected = audio.eqOn && levels == preset,
+                        onClick = { levels = preset; commit(preset) },
+                        label = { Text(name) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Accent, selectedLabelColor = Color.White),
+                    )
+                }
+            }
+        }
+        SectionLabel("ปรับเอง")
+        info.bandHz.forEachIndexed { band, hz ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(formatHz(hz), color = Color.White, fontSize = 14.sp, modifier = Modifier.width(64.dp))
+                Slider(
+                    value = levels.getOrElse(band) { 0 }.toFloat(),
+                    onValueChange = { v -> levels = levels.toMutableList().also { it[band] = v.toInt() } },
+                    onValueChangeFinished = { commit(levels) },
+                    valueRange = info.minLevel.toFloat()..info.maxLevel.toFloat(),
+                    modifier = Modifier.weight(1f).semantics { contentDescription = "ความถี่ ${formatHz(hz)}" },
+                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
+                )
+                Text(
+                    "%+.0f dB".format(levels.getOrElse(band) { 0 } / 100f), color = Muted, fontSize = 13.sp,
+                    modifier = Modifier.width(56.dp), textAlign = TextAlign.End,
+                )
+            }
+        }
+        TextButton(
+            onClick = { levels = info.bandHz.map { 0 }; commit(levels) },
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp).heightIn(min = 48.dp),
+        ) { Text("รีเซ็ตเป็นเสียงปกติ") }
+    }
+}
+
+/** Listening time, plays, most played songs and artists, counted by the player (30 s of listening = one play). */
+@Composable
+fun StatsScreen(summary: ListeningSummary, onBack: () -> Unit, onPlay: (Track) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        PageHeader("สถิติการฟัง", onBack)
+        if (summary.plays == 0 && summary.seconds == 0L) {
+            Text(
+                "ยังไม่มีข้อมูล ฟังเพลงสักพักแล้วกลับมาดูอีกครั้ง\nเพลงที่ฟังเกิน 30 วินาทีนับเป็นการฟัง 1 ครั้ง",
+                color = Muted, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.padding(16.dp),
+            )
+            return@Column
+        }
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf("เวลาที่ฟังทั้งหมด" to formatListening(summary.seconds), "จำนวนครั้งที่ฟัง" to "${summary.plays} ครั้ง").forEach { (label, value) ->
+                Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Surface2).padding(16.dp)) {
+                    Text(value, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(label, color = Muted, fontSize = 13.sp)
+                }
+            }
+        }
+        SectionLabel("เพลงที่ฟังบ่อยที่สุด")
+        summary.songs.forEachIndexed { i, (t, stat) ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable { onPlay(t) }.padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("${i + 1}", color = Muted, fontSize = 15.sp, modifier = Modifier.width(28.dp))
+                Artwork(t, Modifier.size(48.dp))
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text(t.title, color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(t.artist, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("${stat.plays} ครั้ง", color = AccentText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (summary.artists.isNotEmpty()) {
+            SectionLabel("ศิลปินที่ฟังนานที่สุด")
+            summary.artists.forEach { (name, sec) ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(name, color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(formatListening(sec), color = Muted, fontSize = 13.sp)
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 

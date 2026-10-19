@@ -123,9 +123,11 @@ fun convertYoutube(
     val ext = if (format == YtFormat.MP3) "mp3" else "mp4"
     val dir = File(context.cacheDir, "yt/$videoId").apply { deleteRecursively(); mkdirs() }
     try {
-        val request = YoutubeDLRequest(url).apply {
+        fun request(sponsorBlock: Boolean) = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("-o", "${dir.absolutePath}/$videoId.%(ext)s")
+            // Cuts the non-music parts of music videos (talking intros, outros) that SponsorBlock users have marked.
+            if (sponsorBlock) addOption("--sponsorblock-remove", "music_offtopic")
             if (format == YtFormat.MP3) {
                 addOption("-f", "bestaudio")
                 addOption("-x")
@@ -141,14 +143,24 @@ fun convertYoutube(
                 addOption("--merge-output-format", "mp4")
             }
         }
-        val processId = UUID.randomUUID().toString()
-        withUpdate("แปลงไม่สำเร็จ ลองใหม่ภายหลัง") {
+        fun run(sponsorBlock: Boolean) {
+            val processId = UUID.randomUUID().toString()
             try {
                 // yt-dlp reports 100% before ffmpeg finishes converting, so hold at 99% until it is done.
-                ytdl.execute(request, processId) { progress, _, _ -> onProgress(progress.coerceIn(0f, 99f) / 100f) }
+                ytdl.execute(request(sponsorBlock), processId) { progress, _, _ -> onProgress(progress.coerceIn(0f, 99f) / 100f) }
             } catch (e: InterruptedException) {
                 ytdl.destroyProcessById(processId)
                 throw e
+            }
+        }
+        withUpdate("แปลงไม่สำเร็จ ลองใหม่ภายหลัง") {
+            try {
+                run(sponsorBlock = true)
+            } catch (e: YoutubeDLException) {
+                // yt-dlp fails the whole job when the SponsorBlock server is down; the song is still wanted, uncut.
+                if (e.message?.contains("SponsorBlock") != true) throw e
+                dir.listFiles()?.forEach { it.delete() }
+                run(sponsorBlock = false)
             }
         }
         val out = dir.listFiles()?.firstOrNull { it.extension == ext } ?: throw ImportException("แปลงไม่สำเร็จ ลองใหม่ภายหลัง")

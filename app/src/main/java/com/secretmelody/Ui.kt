@@ -13,6 +13,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1347,7 +1349,8 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
         }
     }
     Column(modifier) {
-        LyricsView(found, posMs - offset, { onSeek(it + offset) }, Modifier.weight(1f).fillMaxWidth(), tr?.getOrNull()?.lines?.takeIf { showTr })
+        val share = { text: String -> shareLyrics(context, text, t) }
+        LyricsView(found, posMs - offset, { onSeek(it + offset) }, Modifier.weight(1f).fillMaxWidth(), tr?.getOrNull()?.lines?.takeIf { showTr }, share)
         if (found?.synced != null) {
             val result = tr
             val label = when {
@@ -1364,7 +1367,10 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
                     result != null -> showTr = false
                 }
             }
-            TextButton(onClick = action, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(label, color = AccentText) }
+            Row(Modifier.align(Alignment.CenterHorizontally)) {
+                TextButton(onClick = action) { Text(label, color = AccentText) }
+                TextButton(onClick = { share(found?.synced.orEmpty().joinToString("\n") { it.text }) }) { Text("แชร์เนื้อเพลง", color = AccentText) }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                 fun shift(by: Long) { saved = offset + by; LyricsCache.saveOffset(context.filesDir, t, offset + by) }
                 TextButton(onClick = { shift(-500) }) { Text("เนื้อเพลงช้าไป", color = Muted) }
@@ -1377,7 +1383,11 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
 
 /** null = still looking. */
 @Composable
-fun LyricsView(lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier, translation: List<String>? = null) {
+@OptIn(ExperimentalFoundationApi::class)
+fun LyricsView(
+    lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier,
+    translation: List<String>? = null, onShare: (String) -> Unit = {},
+) {
     Box(modifier.padding(vertical = 16.dp)) {
         when {
             lyrics == null -> Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
@@ -1392,7 +1402,7 @@ fun LyricsView(lyrics: Lyrics?, posMs: Long, onSeek: (Long) -> Unit, modifier: M
                 LaunchedEffect(now) { if (now >= 0) list.animateScrollToItem((now - 2).coerceAtLeast(0)) }
                 LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(lines) { i, line ->
-                        Column(Modifier.fillMaxWidth().clickable { onSeek(line.ms) }.padding(vertical = 8.dp)) {
+                        Column(Modifier.fillMaxWidth().combinedClickable(onLongClick = { onShare(line.text) }) { onSeek(line.ms) }.padding(vertical = 8.dp)) {
                             Text(
                                 line.text.ifBlank { "♪" },
                                 color = if (i == now) Color.White else Color.White.copy(alpha = 0.55f),
@@ -1437,10 +1447,23 @@ private fun NowPlaying(
     val max = total.coerceAtLeast(1L).toFloat()
     val shown = drag ?: pos.coerceAtMost(total).toFloat()
     var showLyrics by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var videoVersion by remember { mutableIntStateOf(0) }
+    val video = remember(t.key, videoVersion) { backgroundVideo(context, t).takeIf { it.exists() } }
+    var videoMenu by remember { mutableStateOf(false) }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch {
+            val ok = withContext(Dispatchers.IO) { runCatching { saveBackgroundVideo(context, t, uri) }.getOrDefault(false) }
+            if (!ok) Toast.makeText(context, "ใช้วิดีโอนี้ไม่ได้ (ต้องไม่เกิน 30 MB)", Toast.LENGTH_SHORT).show()
+            videoVersion++
+        }
+    }
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(rememberArtColor(t), Bg)))) {
+    video?.let { BackgroundVideo(it) }
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(rememberArtColor(t), Bg)))
             .systemBarsPadding()
             .padding(horizontal = 24.dp),
     ) {
@@ -1454,6 +1477,17 @@ private fun NowPlaying(
                     t.album.ifBlank { "เพลงของคุณ" }, color = Color.White, fontSize = 13.sp,
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
+            }
+            Box {
+                IconButton(onClick = { videoMenu = true }) {
+                    Icon(Icons.Default.Movie, "วิดีโอพื้นหลัง", tint = if (video != null) AccentText else Color.White)
+                }
+                DropdownMenu(videoMenu, { videoMenu = false }) {
+                    DropdownMenuItem({ Text("เลือกวิดีโอพื้นหลัง") }, { videoMenu = false; pickVideo.launch("video/*") })
+                    if (video != null) {
+                        DropdownMenuItem({ Text("ลบวิดีโอพื้นหลัง") }, { videoMenu = false; video.delete(); videoVersion++ })
+                    }
+                }
             }
             IconButton(onClick = { showLyrics = !showLyrics }) {
                 Icon(
@@ -1572,6 +1606,7 @@ private fun NowPlaying(
             }
         }
     }
+    }
 }
 
 /** A dark colour picked from the song's artwork, so white text stays readable on it. */
@@ -1648,4 +1683,10 @@ private fun EmptyLibrary() {
             color = Muted, textAlign = TextAlign.Center,
         )
     }
+}
+
+/** Lyrics as text to any app (chat, notes, stories), with the song they come from. Long-press a line to share just it. */
+fun shareLyrics(context: Context, lyrics: String, t: Track) {
+    val text = "${lyrics.trim()}\n\n— ${t.title} · ${t.artist}"
+    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "แชร์เนื้อเพลง"))
 }

@@ -20,23 +20,29 @@ data class Track(
     val sizeBytes: Long = 0,
     val coverPath: String? = null, // a cover the user picked, overrides the one inside the file
     val key: String = "id:$id", // file name, lowercase: how playlists, likes and edits remember a song across moves
+    val remoteArt: String? = null, // cover on the web, for songs played from YouTube
 ) {
     val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
     val artUri: Uri get() = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
 
-    fun toMediaItem(): MediaItem = MediaItem.Builder()
-        .setMediaId(id.toString())
-        .setUri(uri)
-        .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(uri).build())
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(title)
-                .setArtist(artist)
-                .setAlbumTitle(album)
-                .setArtworkUri(coverPath?.let { Uri.fromFile(File(it)) } ?: artUri)
-                .build()
-        )
-        .build()
+    fun toMediaItem(): MediaItem {
+        val stream = key.startsWith(YT_KEY)
+        val playUri = if (stream) ytStreamUri(key.removePrefix(YT_KEY)) else uri
+        return MediaItem.Builder()
+            .setMediaId(if (stream) key else id.toString())
+            .setUri(playUri)
+            .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(playUri).build())
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .setAlbumTitle(album)
+                    .setDurationMs(durationMs.takeIf { it > 0 })
+                    .setArtworkUri(coverPath?.let { Uri.fromFile(File(it)) } ?: remoteArt?.let(Uri::parse) ?: artUri)
+                    .build()
+            )
+            .build()
+    }
 }
 
 /** All music files on the phone, A to Z. Call off the main thread. */

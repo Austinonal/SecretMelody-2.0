@@ -222,6 +222,7 @@ fun App(
     val albums = remember(list) { list.albums() }
     val artists = remember(list) { list.artists() }
     val current = ui?.mediaId?.toLongOrNull()?.let { byId[it] }
+        ?: ui?.mediaId?.let { player?.currentMediaItem?.let(::streamTrack) } // playing from YouTube
     val recentIds by produceState(emptyList<String>(), startTick, ui?.mediaId) {
         delay(500) // let the playback process write the play first
         value = withContext(Dispatchers.IO) { readRecent(context.filesDir) }
@@ -232,6 +233,30 @@ fun App(
     }
     val mostPlayedGroup = remember(list, stats) { TrackGroup("ฟังบ่อยที่สุด", "เพลย์ลิสต์อัตโนมัติ", mostPlayed(list, stats), false) }
     val summary = remember(list, stats) { summarize(list, stats) }
+    var ytSignedIn by remember { mutableStateOf(YtAccount.isSignedIn(context)) }
+    var ytLibrary by remember { mutableStateOf<YtLibrary?>(null) }
+    LaunchedEffect(Unit) { ytLibrary = withContext(Dispatchers.IO) { YtAccount.read(context) } }
+    var ytSyncing by remember { mutableStateOf(false) }
+    var ytError by remember { mutableStateOf<String?>(null) }
+    val ytSync: () -> Unit = {
+        ytSyncing = true
+        ytError = null
+        scope.launch {
+            try {
+                ytLibrary = withContext(Dispatchers.IO) { YtAccount.sync(context) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ytError = (e as? ImportException)?.message ?: "ซิงก์ไม่สำเร็จ: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                ytSyncing = false
+            }
+        }
+    }
+    // Synced YouTube lists sit with the playlists; their songs play from YouTube.
+    val ytGroups = remember(ytLibrary) {
+        ytLibrary?.lists.orEmpty().map { TrackGroup(it.title, "YouTube • ${it.tracks.size} เพลง", it.tracks, false) }
+    }
     var audio by remember { mutableStateOf(AudioStore.read(context.filesDir)) }
     // Saved here, applied by the player (another process) now through a command and from the file when it restarts.
     val setAudio: (AudioSettings) -> Unit = { a ->
@@ -590,6 +615,31 @@ fun App(
                         onEdit = { editingId = it.id },
                     )
                 }
+                tab == 3 && settingsPage == "youtube" -> {
+                    BackHandler { settingsPage = "" }
+                    YoutubeAccountScreen(
+                        ytSignedIn, ytLibrary, ytSyncing, ytError,
+                        onSignIn = { settingsPage = "ytlogin" },
+                        onSync = ytSync,
+                        onSignOut = {
+                            YtAccount.signOut(context)
+                            ytSignedIn = false
+                            ytLibrary = null
+                        },
+                        onBack = { settingsPage = "" },
+                    )
+                }
+                tab == 3 && settingsPage == "ytlogin" -> {
+                    BackHandler { settingsPage = "youtube" }
+                    YoutubeSignInScreen(
+                        onDone = {
+                            ytSignedIn = true
+                            settingsPage = "youtube"
+                            ytSync()
+                        },
+                        onBack = { settingsPage = "youtube" },
+                    )
+                }
                 tab == 3 && settingsPage == "eq" -> {
                     BackHandler { settingsPage = "" }
                     val eqInfo = remember { readEqInfo(context.getSystemService(android.media.AudioManager::class.java)) }
@@ -634,6 +684,12 @@ fun App(
                         statsSummary = if (summary.plays == 0) "ยังไม่มีข้อมูล"
                         else "ฟังไป ${formatListening(summary.seconds)} · ${summary.plays} ครั้ง",
                         onOpenStats = { settingsPage = "stats" },
+                        youtubeSummary = when {
+                            !ytSignedIn -> "เข้าสู่ระบบเพื่อดึงเพลงที่ชอบและเพลย์ลิสต์มาฟัง"
+                            ytLibrary == null -> "เชื่อมต่อแล้ว ยังไม่ได้ซิงก์"
+                            else -> "เชื่อมต่อแล้ว · ${ytLibrary!!.lists.sumOf { it.tracks.size }} เพลง"
+                        },
+                        onOpenYoutube = { settingsPage = "youtube" },
                     )
                 }
                 list.isEmpty() && tab != 2 -> EmptyLibrary()
@@ -644,8 +700,19 @@ fun App(
                     shortcuts = (listOfNotNull(liked.takeIf { it.tracks.isNotEmpty() }, mostPlayedGroup.takeIf { it.tracks.isNotEmpty() }) + playlistGroups + albums).take(6),
                     albums, artists, onPlay, onShuffle, actions, onOpen,
                 )
-                tab == 1 -> SearchScreen(list, artists, current?.id, query, { query = it }, onPlay, actions, onOpen)
-                else -> LibraryScreen(liked, playlistGroups, artists, albums, onOpen, onCreate = { newPlaylist(null) })
+                tab == 1 -> SearchScreen(
+                    list, artists, current?.id, query, { query = it }, onPlay, actions, onOpen,
+                    onDownload = { t ->
+                        if (linkImport.running) toast("กำลังแปลงเพลงอื่นอยู่ รอให้เสร็จก่อน")
+                        else {
+                            linkImport.url = "https://www.youtube.com/watch?v=${t.videoId}"
+                            linkImport.error = null
+                            tab = 3
+                            settingsPage = "link"
+                        }
+                    },
+                )
+                else -> LibraryScreen(liked, playlistGroups + ytGroups, artists, albums, onOpen, onCreate = { newPlaylist(null) })
             }
         }
         if (player != null && ui != null && current != null) {
@@ -1009,8 +1076,17 @@ private fun SearchScreen(
     onPlay: (List<Track>, Int) -> Unit,
     actions: TrackActions,
     onOpen: (TrackGroup) -> Unit,
+    onDownload: (Track) -> Unit = {},
 ) {
     val results = remember(tracks, query) { tracks.search(query) }
+    // YouTube is searched once typing pauses; null = still searching, an error shows as a message.
+    var online by remember { mutableStateOf<Result<List<Track>>?>(null) }
+    LaunchedEffect(query) {
+        online = null
+        if (query.isBlank()) return@LaunchedEffect
+        delay(600)
+        online = withContext(Dispatchers.IO) { runCatching { searchYoutube(query.trim()) } }
+    }
     Column(Modifier.fillMaxSize()) {
         Text(
             "ค้นหา", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold,
@@ -1057,12 +1133,40 @@ private fun SearchScreen(
                     items(artists) { g -> BrowseTile(g, onOpen) }
                 }
             }
-            results.isEmpty() -> Text(
-                "ไม่พบ \"$query\"", color = Muted, modifier = Modifier.padding(16.dp),
-            )
             else -> LazyColumn(Modifier.fillMaxSize()) {
+                if (results.isEmpty()) item { Text("ไม่พบ \"$query\" ในเครื่อง", color = Muted, modifier = Modifier.padding(16.dp)) }
                 itemsIndexed(results, key = { _, t -> t.id }) { i, t ->
                     TrackRow(t, t.id == currentId, onClick = { onPlay(results, i) }, actions)
+                }
+                item {
+                    Text(
+                        "จาก YouTube", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
+                    )
+                }
+                val found = online
+                when {
+                    found == null -> item {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = AccentText, strokeWidth = 2.dp)
+                            Text("กำลังค้นหา…", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(start = 10.dp))
+                        }
+                    }
+                    found.isFailure -> item {
+                        Text("ค้นหาบน YouTube ไม่ได้ ตรวจสอบอินเทอร์เน็ต", color = Muted, modifier = Modifier.padding(16.dp))
+                    }
+                    else -> {
+                        val streams = found.getOrThrow()
+                        if (streams.isEmpty()) item { Text("ไม่พบบน YouTube", color = Muted, modifier = Modifier.padding(16.dp)) }
+                        itemsIndexed(streams, key = { _, t -> t.key }) { i, t ->
+                            // Plays from YouTube without saving; the button converts it into the library instead.
+                            TrackRow(t, t.id == currentId, onClick = { onPlay(streams, i) }, actions) {
+                                IconButton(onClick = { onDownload(t) }) {
+                                    Icon(Icons.Default.Download, "ดาวน์โหลดเป็น MP3", tint = Muted)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1199,7 +1303,7 @@ private fun MiniPlayer(t: Track, ui: PlayerUi, player: Player, liked: Boolean, o
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            LikeButton(liked, onLike)
+            if (!t.isStream) LikeButton(liked, onLike) // a liked stream would have nowhere to show
             IconButton(onClick = { player.togglePlay() }) {
                 Icon(
                     if (ui.showPlay) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -1331,7 +1435,7 @@ private fun NowPlaying(
                 )
                 Text(t.artist, color = Muted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            LikeButton(liked, onLike, size = 28)
+            if (!t.isStream) LikeButton(liked, onLike, size = 28)
         }
         Spacer(Modifier.height(12.dp))
         Slider(

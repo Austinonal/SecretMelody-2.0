@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -161,6 +162,8 @@ fun SettingsScreen(
     onOpenEq: () -> Unit = {},
     statsSummary: String = "",
     onOpenStats: () -> Unit = {},
+    youtubeSummary: String = "",
+    onOpenYoutube: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(
@@ -187,6 +190,8 @@ fun SettingsScreen(
                 Text(text, color = Color.White, fontSize = 14.sp)
             }
         }
+        SectionLabel("บัญชี")
+        SettingRow(Icons.Default.AccountCircle, "บัญชี YouTube", youtubeSummary, onClick = onOpenYoutube)
         SectionLabel("เสียง")
         SettingRow(
             Icons.Default.GraphicEq, "ข้ามช่วงเงียบ", "ตัดช่วงเงียบตอนต้น ตอนท้าย และระหว่างเพลงออกขณะเล่น",
@@ -742,6 +747,87 @@ fun StatsScreen(summary: ListeningSummary, onBack: () -> Unit, onPlay: (Track) -
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Signed in: sync the liked songs and playlists, or sign out. Signed out: why and how to sign in. */
+@Composable
+fun YoutubeAccountScreen(
+    signedIn: Boolean,
+    library: YtLibrary?,
+    syncing: Boolean,
+    error: String?,
+    onSignIn: () -> Unit,
+    onSync: () -> Unit,
+    onSignOut: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        PageHeader("บัญชี YouTube", onBack)
+        if (!signedIn) {
+            Text(
+                "เข้าสู่ระบบด้วยบัญชี Google ที่ใช้กับ YouTube แล้วแอปจะดึงเพลงที่คุณกดชอบและเพลย์ลิสต์ของคุณมาไว้ในคลังเพลง " +
+                    "ฟังได้ทันทีจาก YouTube โดยไม่ต้องดาวน์โหลด",
+                color = Color.White, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.padding(16.dp),
+            )
+            Text(
+                "แอปเก็บการเข้าสู่ระบบไว้ในเครื่องนี้เท่านั้น ไม่ส่งไปที่อื่นนอกจาก YouTube และไม่สำรองขึ้นคลาวด์ กดออกจากระบบเพื่อลบได้ทุกเมื่อ",
+                color = Muted, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Button(
+                onClick = onSignIn,
+                modifier = Modifier.padding(16.dp).fillMaxWidth().heightIn(min = 52.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
+            ) { Text("เข้าสู่ระบบด้วย Google", fontWeight = FontWeight.Bold) }
+            return@Column
+        }
+        Text(
+            if (library == null) "เชื่อมต่อแล้ว ยังไม่ได้ซิงก์"
+            else "ซิงก์ล่าสุด ${java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale("th")).format(java.util.Date(library.syncedAt))}",
+            color = Muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        library?.lists?.forEach { l ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(l.title, color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${l.tracks.size} เพลง", color = Muted, fontSize = 13.sp)
+            }
+        }
+        error?.let { Text(it, color = Danger, fontSize = 14.sp, modifier = Modifier.padding(16.dp)) }
+        Button(
+            onClick = onSync, enabled = !syncing,
+            modifier = Modifier.padding(16.dp).fillMaxWidth().heightIn(min = 52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.White),
+        ) {
+            if (syncing) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+            Text(if (syncing) "  กำลังซิงก์…" else "ซิงก์ตอนนี้", fontWeight = FontWeight.Bold)
+        }
+        OutlinedButton(onClick = onSignOut, enabled = !syncing, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().heightIn(min = 48.dp)) {
+            Text("ออกจากระบบ")
+        }
+    }
+}
+
+/** Google's own sign-in page; once it lands on YouTube Music the session is taken and the page closes. */
+@Composable
+fun YoutubeSignInScreen(onDone: () -> Unit, onBack: () -> Unit) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("เข้าสู่ระบบ YouTube", onBack)
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { c ->
+                android.webkit.WebView(c).apply {
+                    settings.javaScriptEnabled = true // Google's sign-in page needs it
+                    settings.domStorageEnabled = true
+                    webViewClient = object : android.webkit.WebViewClient() {
+                        override fun onPageFinished(view: android.webkit.WebView, url: String) {
+                            if (url.startsWith("https://music.youtube.com") && YtAccount.takeCookies(context)) onDone()
+                        }
+                    }
+                    loadUrl("https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F")
+                }
+            },
+        )
     }
 }
 

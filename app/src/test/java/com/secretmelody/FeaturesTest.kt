@@ -23,6 +23,28 @@ class FeaturesTest {
     }
 
     @Test
+    fun dailyMixIsStableForADayAndMixesFavourites() {
+        val tracks = (1L..100L).map { t(it, if (it <= 10) "Fav" else "Other$it") }
+        val stats = mapOf("1" to SongStat(9, 900), "2" to SongStat(5, 500))
+        val today = dailyMix(tracks, stats, liked = listOf("k50"), day = 20_000)
+        assertEquals(today, dailyMix(tracks, stats, liked = listOf("k50"), day = 20_000))
+        assertEquals(25, today.size)
+        assertEquals(25, today.distinct().size)
+        assertEquals(true, today.any { it.id == 1L } && today.any { it.id == 2L } && today.any { it.id == 50L })
+        assertEquals(true, today != dailyMix(tracks, stats, liked = listOf("k50"), day = 20_001))
+        assertEquals(3, dailyMix(tracks.take(3), emptyMap(), emptyList(), day = 1).size)
+    }
+
+    @Test
+    fun fadeRisesAtTheStartAndFallsAtTheEnd() {
+        assertEquals(0f, fadeVolume(0, 200_000), 0f)
+        assertEquals(0.5f, fadeVolume(2_000, 200_000), 0.001f)
+        assertEquals(1f, fadeVolume(100_000, 200_000), 0f)
+        assertEquals(0.25f, fadeVolume(199_000, 200_000), 0.001f)
+        assertEquals(1f, fadeVolume(100_000, -1), 0f) // length unknown
+    }
+
+    @Test
     fun summaryTotalsTopSongsAndArtists() {
         val tracks = listOf(t(1, "X"), t(2, "Y"), t(3, "X"))
         val s = summarize(tracks, mapOf("1" to SongStat(4, 100), "2" to SongStat(1, 500), "3" to SongStat(2, 50), "99" to SongStat(9, 9)))

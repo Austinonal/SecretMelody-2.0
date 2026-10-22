@@ -201,6 +201,10 @@ fun SettingsScreen(
             Icons.AutoMirrored.Filled.VolumeUp, "ปรับเสียงให้ดังใกล้กัน", "เพลงที่อัดมาเบาจะดังขึ้น เพลงที่ดังจะนุ่มลง ไม่ต้องคอยปรับเสียงเอง",
             checked = audio.evenVolume, onClick = { onAudio(audio.copy(evenVolume = !audio.evenVolume)) },
         )
+        SettingRow(
+            Icons.Default.Tune, "เพลงค่อยๆ ต่อกัน", "เสียงค่อยๆ เบาลงตอนท้ายเพลง แล้วค่อยๆ ดังขึ้นตอนเริ่มเพลงถัดไป",
+            checked = audio.fade, onClick = { onAudio(audio.copy(fade = !audio.fade)) },
+        )
         SettingRow(Icons.Default.Equalizer, "อีควอไลเซอร์", if (audio.eqOn) "เปิดอยู่" else "ปิดอยู่", onClick = onOpenEq)
         SectionLabel("จัดการ")
         SettingRow(Icons.Default.Leaderboard, "สถิติการฟัง", statsSummary, onClick = onOpenStats)

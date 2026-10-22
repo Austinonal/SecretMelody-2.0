@@ -107,6 +107,16 @@ class StreamResolver(private val context: Context) : ResolvingDataSource.Resolve
         return dataSpec.buildUpon().setUri(Uri.parse(f.url)).setHttpRequestHeaders(f.headers).build()
     }
 
+    /** Looks the next song up ahead of time, so it starts without yt-dlp's few-second wait. Blocking. */
+    fun prefetch(id: String) {
+        if (found[id]?.until?.let { it > System.currentTimeMillis() } != true) runCatching { found[id] = lookUp(id) }
+    }
+
+    /** The address stopped working (it expired, or the phone changed network): look it up again next time. */
+    fun forget(id: String) {
+        found.remove(id)
+    }
+
     private fun lookUp(id: String): Found {
         initOnce(context)
         val request = YoutubeDLRequest("https://www.youtube.com/watch?v=$id")

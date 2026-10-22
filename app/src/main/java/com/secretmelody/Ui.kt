@@ -234,6 +234,11 @@ fun App(
         value = withContext(Dispatchers.IO) { PlayStats.read(context.filesDir) }
     }
     val mostPlayedGroup = remember(list, stats) { TrackGroup("ฟังบ่อยที่สุด", "เพลย์ลิสต์อัตโนมัติ", mostPlayed(list, stats), false) }
+    val today = java.time.LocalDate.now().toEpochDay()
+    // Not keyed on every stats change (each song played), so the mix stays put for the day once the stats have loaded.
+    val mixGroup = remember(list, today, stats.isEmpty()) {
+        TrackGroup("มิกซ์ประจำวัน", "เพลย์ลิสต์แนะนำ เปลี่ยนทุกวัน", dailyMix(list, stats, library.liked, today), false)
+    }
     val summary = remember(list, stats) { summarize(list, stats) }
     var ytSignedIn by remember { mutableStateOf(YtAccount.isSignedIn(context)) }
     var ytLibrary by remember { mutableStateOf<YtLibrary?>(null) }
@@ -699,7 +704,7 @@ fun App(
                     list, current?.id, homeState, recent,
                     refreshing = refreshing,
                     onRefresh = { refreshing = true; reload++ },
-                    shortcuts = (listOfNotNull(liked.takeIf { it.tracks.isNotEmpty() }, mostPlayedGroup.takeIf { it.tracks.isNotEmpty() }) + playlistGroups + albums).take(6),
+                    shortcuts = (listOfNotNull(liked.takeIf { it.tracks.isNotEmpty() }, mixGroup.takeIf { it.tracks.isNotEmpty() }, mostPlayedGroup.takeIf { it.tracks.isNotEmpty() }) + playlistGroups + albums).take(6),
                     albums, artists, onPlay, onShuffle, actions, onOpen,
                 )
                 tab == 1 -> SearchScreen(
@@ -1327,6 +1332,7 @@ private fun MiniPlayer(t: Track, ui: PlayerUi, player: Player, liked: Boolean, o
 @Composable
 private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: Modifier) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val found by produceState<Lyrics?>(null, t.key, t.title, t.artist) {
         value = null
         value = withContext(Dispatchers.IO) {
@@ -1349,7 +1355,8 @@ private fun LyricsPane(t: Track, posMs: Long, onSeek: (Long) -> Unit, modifier: 
         }
     }
     Column(modifier) {
-        val share = { text: String -> shareLyrics(context, text, t) }
+        // Long-press a line to share just it, or the button for the whole song.
+        val share = { text: String -> scope.launch { shareLyrics(context, text, t) }; Unit }
         LyricsView(found, posMs - offset, { onSeek(it + offset) }, Modifier.weight(1f).fillMaxWidth(), tr?.getOrNull()?.lines?.takeIf { showTr }, share)
         if (found?.synced != null) {
             val result = tr
@@ -1685,8 +1692,3 @@ private fun EmptyLibrary() {
     }
 }
 
-/** Lyrics as text to any app (chat, notes, stories), with the song they come from. Long-press a line to share just it. */
-fun shareLyrics(context: Context, lyrics: String, t: Track) {
-    val text = "${lyrics.trim()}\n\n— ${t.title} · ${t.artist}"
-    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "แชร์เนื้อเพลง"))
-}

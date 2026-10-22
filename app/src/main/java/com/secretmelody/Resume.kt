@@ -39,7 +39,7 @@ object ResumeStore {
     /** Called on the player's thread: snapshot the queue and write it out. */
     fun save(dir: File, player: Player) {
         if (player.mediaItemCount == 0) return
-        val items = (0 until player.mediaItemCount).map { i ->
+        val all = (0 until player.mediaItemCount).map { i ->
             val m = player.getMediaItemAt(i)
             val md = m.mediaMetadata
             ResumeItem(
@@ -47,8 +47,11 @@ object ResumeStore {
                 md.title?.toString().orEmpty(), md.artist?.toString().orEmpty(), md.albumTitle?.toString().orEmpty(),
                 md.artworkUri?.toString().orEmpty(),
             )
-        }.filter { it.uri.isNotEmpty() }
-        val state = ResumeState(player.currentMediaItemIndex, player.currentPosition, items)
+        }
+        val items = all.filter { it.uri.isNotEmpty() }
+        // Count only the kept songs before the current one, or a dropped song would make it resume on the wrong one.
+        val index = all.take(player.currentMediaItemIndex).count { it.uri.isNotEmpty() }
+        val state = ResumeState(index, player.currentPosition, items)
         runCatching {
             val tmp = File(dir, "resume.txt.tmp")
             tmp.writeText(state.encode())

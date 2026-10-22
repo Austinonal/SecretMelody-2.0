@@ -7,9 +7,11 @@ import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import android.content.ContentUris
@@ -41,6 +43,17 @@ private const val ROOT = "root"
 class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private val io = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor())
+    private val prefetcher = Executors.newSingleThreadExecutor() // its own thread: a lookup takes seconds, don't hold up Android Auto
+    private lateinit var resolver: StreamResolver
+    private var retried: String? = null // the song whose YouTube address was looked up again after an error
+    private var fadeOn = false
+    private val fader = object : Runnable {
+        override fun run() {
+            val p = exo ?: return
+            p.volume = if (fadeOn) fadeVolume(p.currentPosition, p.duration) else 1f
+            if (fadeOn && p.isPlaying) handler.postDelayed(this, 100)
+        }
+    }
     @Volatile private var browsed = emptyMap<String, List<MediaItem>>() // folder id -> its songs, from the last browse
     private var exo: ExoPlayer? = null
     private var effects: AudioEffects? = null
@@ -65,9 +78,16 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        resolver = StreamResolver(this)
         val player = ExoPlayer.Builder(this)
             // Files play as they are; ytstream:// (a YouTube song) becomes YouTube's audio address when it starts.
-            .setMediaSourceFactory(DefaultMediaSourceFactory(ResolvingDataSource.Factory(DefaultDataSource.Factory(this), StreamResolver(this))))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(ResolvingDataSource.Factory(DefaultDataSource.Factory(this), resolver)))
+            // Start a stream after 1 s of audio instead of 2.5 s.
+            .setLoadControl(
+                DefaultLoadControl.Builder().setBufferDurationsMs(
+                    DefaultLoadControl.DEFAULT_MIN_BUFFER_MS, DefaultLoadControl.DEFAULT_MAX_BUFFER_MS, 1_000, 2_000,
+                ).build()
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -79,7 +99,9 @@ class PlaybackService : MediaLibraryService() {
             .setWakeMode(C.WAKE_MODE_LOCAL) // keep the CPU awake while playing with the screen off
             .build()
         exo = player
-        effects = AudioEffects(player).also { it.apply(AudioStore.read(filesDir)) }
+        val audio = AudioStore.read(filesDir)
+        effects = AudioEffects(player).also { it.apply(audio) }
+        fadeOn = audio.fade
         // Recorded here, not in the UI, so songs played with the app closed still count.
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -87,6 +109,26 @@ class PlaybackService : MediaLibraryService() {
                 val id = mediaItem?.mediaId ?: return
                 runCatching { recordPlay(filesDir, id) }
                 ResumeStore.save(filesDir, player)
+                prefetchNext(player)
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) retried = null
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                val id = player.currentMediaItem?.mediaId ?: return
+                // A YouTube address dies when it expires or the phone changes network; that used to leave "play"
+                // dead until the app restarted. Look it up again, once, and carry on from the same spot.
+                if (id.startsWith(YT_KEY) && retried != id) {
+                    retried = id
+                    resolver.forget(id.removePrefix(YT_KEY))
+                    player.prepare()
+                } else if (error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND && player.hasNextMediaItem()) {
+                    // A saved queue can hold a file deleted since: skip it rather than stop on it.
+                    player.seekToNextMediaItem()
+                    player.prepare()
+                }
             }
 
             override fun onEvents(player: Player, events: Player.Events) {
@@ -96,6 +138,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) restartFader()
                 if (!isPlaying) {
                     player.pauseAtEndOfMediaItems = false // an "end of this song" timer is used up (or cancelled by pausing)
                     PlayLog.stopped(filesDir)
@@ -169,7 +212,11 @@ class PlaybackService : MediaLibraryService() {
                 ): ListenableFuture<SessionResult> {
                     when (customCommand.customAction) {
                         CMD_SLEEP -> setSleep(args.getInt("minutes"))
-                        CMD_AUDIO -> effects?.apply(audioSettingsFrom(args))
+                        CMD_AUDIO -> audioSettingsFrom(args).let { a ->
+                            effects?.apply(a)
+                            fadeOn = a.fade
+                            restartFader()
+                        }
                         else -> return super.onCustomCommand(session, controller, customCommand, args)
                     }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -194,6 +241,16 @@ class PlaybackService : MediaLibraryService() {
             player.prepare()
         }
         handler.post(heartbeat)
+    }
+
+    private fun restartFader() {
+        handler.removeCallbacks(fader)
+        handler.post(fader)
+    }
+
+    private fun prefetchNext(player: Player) {
+        val next = player.nextMediaItemIndex.takeIf { it != C.INDEX_UNSET }?.let { player.getMediaItemAt(it).mediaId } ?: return
+        if (next.startsWith(YT_KEY)) prefetcher.execute { resolver.prefetch(next.removePrefix(YT_KEY)) }
     }
 
     private fun setSleep(minutes: Int) {
@@ -257,6 +314,8 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         io.shutdown()
+        prefetcher.shutdownNow()
+        handler.removeCallbacks(fader)
         handler.removeCallbacks(heartbeat)
         handler.removeCallbacks(sleep)
         session?.player?.let { ResumeStore.save(filesDir, it) }

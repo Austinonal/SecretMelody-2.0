@@ -41,6 +41,20 @@ fun mostPlayed(tracks: List<Track>, stats: Map<String, SongStat>, limit: Int = 5
         .sortedWith(compareByDescending<Track> { stats[it.id.toString()]!!.plays }.thenByDescending { stats[it.id.toString()]!!.seconds })
         .take(limit)
 
+/**
+ * Today's mix: songs you play most and like, songs by the artists you play most, and the rest of the library for
+ * variety, shuffled with the date as the seed so it stays the same all day and changes tomorrow.
+ */
+fun dailyMix(tracks: List<Track>, stats: Map<String, SongStat>, liked: List<String>, day: Long, size: Int = 25): List<Track> {
+    val rnd = kotlin.random.Random(day)
+    val top = mostPlayed(tracks, stats, 15)
+    val topArtists = top.map { it.artist }.distinct().take(5).toSet()
+    val likedSet = liked.toSet()
+    val favourites = (top + tracks.filter { it.key in likedSet }).distinct().shuffled(rnd).take(size * 2 / 5)
+    val sameArtists = tracks.filter { it.artist in topArtists }.shuffled(rnd).take(size / 3)
+    return (favourites + sameArtists + tracks.shuffled(rnd)).distinct().take(size).shuffled(rnd)
+}
+
 data class ListeningSummary(
     val seconds: Long,
     val plays: Int,

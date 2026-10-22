@@ -18,11 +18,12 @@ data class AudioSettings(
     val evenVolume: Boolean = false,
     val eqOn: Boolean = false,
     val eqLevels: List<Int> = emptyList(),
+    val fade: Boolean = false,
 )
 
 fun AudioSettings.toJson(): String = JSONObject()
     .put("skipSilence", skipSilence).put("evenVolume", evenVolume).put("eqOn", eqOn)
-    .put("eqLevels", JSONArray(eqLevels)).toString()
+    .put("eqLevels", JSONArray(eqLevels)).put("fade", fade).toString()
 
 fun audioSettingsFrom(json: String): AudioSettings = runCatching {
     val o = JSONObject(json)
@@ -30,6 +31,7 @@ fun audioSettingsFrom(json: String): AudioSettings = runCatching {
     AudioSettings(
         o.optBoolean("skipSilence"), o.optBoolean("evenVolume"), o.optBoolean("eqOn"),
         (0 until (levels?.length() ?: 0)).map { levels!!.getInt(it) },
+        o.optBoolean("fade"),
     )
 }.getOrDefault(AudioSettings())
 
@@ -114,6 +116,18 @@ private fun evenVolumeConfig(): DynamicsProcessing.Config {
     config.setMbcAllChannelsTo(mbc)
     config.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, true, 0, 1f, 60f, 10f, -1f, 0f))
     return config
+}
+
+const val FADE_MS = 4_000L
+
+/**
+ * "Fade between songs": the volume rises over a song's first [FADE_MS] and falls over its last, 1 when the length is
+ * unknown. shortcut: one player fades out then in, the songs don't overlap; true crossfade needs a second player.
+ */
+fun fadeVolume(posMs: Long, durMs: Long): Float {
+    val fadeIn = posMs.toFloat() / FADE_MS
+    val fadeOut = if (durMs > 0) (durMs - posMs).toFloat() / FADE_MS else 1f
+    return minOf(1f, fadeIn, fadeOut).coerceIn(0f, 1f)
 }
 
 /** What this phone's equalizer offers, read from a throwaway effect so the app needs no player for it. */

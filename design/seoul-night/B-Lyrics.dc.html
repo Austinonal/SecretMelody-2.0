@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>เนื้อเพลง · แบบ B</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&amp;family=Noto+Sans+Thai:wght@400;500;700;800&amp;display=swap">
+<style>
+body{margin:0}
+button{font:inherit;border:0;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #2A1B3D; color: #F4F1FA; font-family: 'Noto Sans Thai', sans-serif; display: flex; flex-direction: column; padding: 18px 24px 24px; overflow: hidden">
+  <div style="display: flex; align-items: center; gap: 12px">
+    <a href="B-NowPlaying.dc.html" aria-label="กลับไปหน้ากำลังเล่น" style="width: 44px; height: 44px; border-radius: 12px; background: #3A2654; color: #F4F1FA; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></a>
+    <div style="flex-grow: 1; min-width: 0"><div style="font-family: 'Black Han Sans', sans-serif; font-size: 18px">SUPERNOVA</div><div style="font-size: 12px; color: #CFC6E0">aespa</div></div>
+    <button style="height: 36px; padding: 0 12px; border-radius: 18px; background: #3A2654; color: #F4F1FA; font-size: 12px; font-weight: 700">แปลไทย</button>
+  </div>
+  <div style="margin-top: 36px; display: flex; flex-direction: column; gap: 22px; font-size: 26px; font-weight: 800; line-height: 1.3">
+    <div style="color: #8C7BA8">[บรรทัดก่อนหน้า]</div>
+    <div style="color: #8C7BA8">[บรรทัดก่อนหน้า]</div>
+    <div style="color: #F4F1FA">[บรรทัดที่กำลังร้อง]<div style="font-size: 15px; font-weight: 500; color: {{accent}}; margin-top: 6px">[คำแปลภาษาไทย]</div></div>
+    <div style="color: #8C7BA8">[บรรทัดถัดไป]</div>
+    <div style="color: #8C7BA8">[บรรทัดถัดไป]</div>
+    <div style="color: #8C7BA8">[บรรทัดถัดไป]</div>
+  </div>
+  <div style="flex-grow: 1"></div>
+  <div style="font-size: 12px; color: #CFC6E0; text-align: center; margin-bottom: 14px">แตะบรรทัดเพื่อข้ามไปตรงนั้น · กดค้างเพื่อแชร์</div>
+  <div style="height: 4px; border-radius: 2px; background: #4A3B60"><div style="width: 42%; height: 4px; border-radius: 2px; background: {{accent}}"></div></div>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px">
+    <span style="font-size: 12px; color: #CFC6E0">1:14</span>
+    <button aria-label="หยุดชั่วคราว" style="width: 60px; height: 60px; border-radius: 30px; background: {{accent}}; color: #0B0A10; display: flex; align-items: center; justify-content: center"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg></button>
+    <button aria-label="แชร์เนื้อเพลง" style="width: 44px; height: 44px; background: transparent; color: #F4F1FA; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"></path></svg></button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#FF4FA3","options":["#FF4FA3","#B98CFF","#E8607F"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#FF4FA3' };
+}
+}
+</script>
+</body>
+</html>

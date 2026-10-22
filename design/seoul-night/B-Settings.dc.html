@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ตั้งค่า · แบบ B</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&amp;family=Noto+Sans+Thai:wght@400;500;700;800&amp;display=swap">
+<style>
+body{margin:0}
+button{font:inherit;border:0;cursor:pointer}
+.sr{position:absolute;opacity:0;width:1px;height:1px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0B0A10; color: #F4F1FA; font-family: 'Noto Sans Thai', sans-serif; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 26px 20px 8px; font-family: 'Black Han Sans', sans-serif; font-size: 34px">SETTINGS</div>
+  <div style="display: flex; flex-direction: column; gap: 14px; padding: 6px 16px">
+    <div style="font-size: 12px; font-weight: 800; color: {{accent}}; letter-spacing: 1px; padding: 0 4px">นำเข้าเพลง</div>
+    <div style="background: #1C1A24; border-radius: 12px; display: flex; flex-direction: column">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 14px; color: #F4F1FA; text-decoration: none; border-bottom: 1px solid #2A2735"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">เลือกไฟล์จากเครื่อง</div><div style="font-size: 12px; color: #A89FBA">เลือกได้หลายไฟล์พร้อมกัน จาก Drive, แฟลชไดรฟ์ หรือโฟลเดอร์ในเครื่อง</div></div><span aria-hidden="true" style="color: #A89FBA">›</span></a>
+      <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 14px; color: #F4F1FA; text-decoration: none"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">นำเข้าจากลิงก์</div><div style="font-size: 12px; color: #A89FBA">ไฟล์เสียง, YouTube หรือ Spotify</div></div><span aria-hidden="true" style="color: #A89FBA">›</span></a>
+    </div>
+    <div style="font-size: 12px; font-weight: 800; color: {{accent}}; letter-spacing: 1px; padding: 0 4px">เสียง</div>
+    <div style="background: #1C1A24; border-radius: 12px; display: flex; flex-direction: column">
+      <label style="display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid #2A2735; cursor: pointer"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">ข้ามช่วงเงียบ</div><div style="font-size: 12px; color: #A89FBA">ตัดช่วงเงียบตอนต้น ตอนท้าย และระหว่างเพลง</div></div><input class="sr" type="checkbox" checked><span style="width: 46px; height: 28px; border-radius: 14px; background: {{accent}}; position: relative; flex-shrink: 0"><span style="position: absolute; right: 3px; top: 3px; width: 22px; height: 22px; border-radius: 11px; background: #0B0A10"></span></span></label>
+      <label style="display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid #2A2735; cursor: pointer"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">ปรับเสียงให้ดังใกล้กัน</div><div style="font-size: 12px; color: #A89FBA">เพลงเบาดังขึ้น เพลงดังนุ่มลง</div></div><input class="sr" type="checkbox"><span style="width: 46px; height: 28px; border-radius: 14px; background: #3A3646; position: relative; flex-shrink: 0"><span style="position: absolute; left: 3px; top: 3px; width: 22px; height: 22px; border-radius: 11px; background: #A89FBA"></span></span></label>
+      <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 14px; color: #F4F1FA; text-decoration: none"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">อีควอไลเซอร์</div><div style="font-size: 12px; color: {{accent}}">เปิดอยู่</div></div><span aria-hidden="true" style="color: #A89FBA">›</span></a>
+    </div>
+    <div style="font-size: 12px; font-weight: 800; color: {{accent}}; letter-spacing: 1px; padding: 0 4px">จัดการ</div>
+    <div style="background: #1C1A24; border-radius: 12px; display: flex; flex-direction: column">
+      <a href="#" style="display: flex; padding: 14px; color: #F4F1FA; text-decoration: none; font-size: 15px; font-weight: 700; border-bottom: 1px solid #2A2735"><span style="flex-grow: 1">สถิติการฟัง</span><span aria-hidden="true" style="color: #A89FBA">›</span></a>
+      <a href="#" style="display: flex; padding: 14px; color: #F4F1FA; text-decoration: none; font-size: 15px; font-weight: 700; border-bottom: 1px solid #2A2735"><span style="flex-grow: 1">พื้นที่ใช้งาน</span><span aria-hidden="true" style="color: #A89FBA">›</span></a>
+      <a href="#" style="display: flex; padding: 14px; color: #F4F1FA; text-decoration: none; font-size: 15px; font-weight: 700; border-bottom: 1px solid #2A2735"><span style="flex-grow: 1">บัญชี YouTube</span><span aria-hidden="true" style="color: #A89FBA">›</span></a>
+      <a href="#" style="display: flex; padding: 14px; color: #F4F1FA; text-decoration: none; font-size: 15px; font-weight: 700"><span style="flex-grow: 1">สำรองข้อมูล</span><span aria-hidden="true" style="color: #A89FBA">›</span></a>
+    </div>
+  </div>
+  <div style="flex-grow: 1"></div>
+  <nav style="display: flex; justify-content: space-around; padding: 10px 0 18px; border-top: 1px solid #1F1C29">
+    <a href="SeoulNight.dc.html" style="display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: #A89FBA; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg>หน้าหลัก</a>
+    <a href="B-Search.dc.html" style="display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: #A89FBA; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>ค้นหา</a>
+    <a href="B-Library.dc.html" style="display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: #A89FBA; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h8"></path><circle cx="18" cy="17" r="3"></circle></svg>คอลเลกชัน</a>
+    <a href="B-Settings.dc.html" style="display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: {{accent}}; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"></path></svg>ตั้งค่า</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#FF4FA3","options":["#FF4FA3","#B98CFF","#E8607F"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#FF4FA3' };
+}
+}
+</script>
+</body>
+</html>

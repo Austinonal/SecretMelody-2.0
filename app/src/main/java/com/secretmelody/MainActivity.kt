@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.Lifecycle
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -74,16 +75,38 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         startTick++
-        val future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java)))
-            .buildAsync()
-        controllerFuture = future
-        future.addListener({ controller = future.get() }, mainExecutor)
+        connect()
     }
 
-    override fun onStop() {
+    // Kept across background trips (not dropped in onStop), so a tap right after reopening the app isn't lost
+    // while a new connection is made. Rebuilt only if the :playback process went away.
+    private fun connect() {
+        if (controllerFuture != null) return
+        lateinit var future: ListenableFuture<MediaController>
+        future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java)))
+            .setListener(object : MediaController.Listener {
+                override fun onDisconnected(c: MediaController) {
+                    if (controllerFuture !== future) return // released on purpose
+                    dropController()
+                    if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) connect()
+                }
+            })
+            .buildAsync()
+        controllerFuture = future
+        future.addListener({
+            // A failed connection used to crash here; drop it so the next return to the app tries again.
+            runCatching { future.get() }.onSuccess { if (controllerFuture === future) controller = it }.onFailure { if (controllerFuture === future) dropController() }
+        }, mainExecutor)
+    }
+
+    private fun dropController() {
         controller = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
-        super.onStop()
+    }
+
+    override fun onDestroy() {
+        controllerFuture?.let { f -> controllerFuture = null; controller = null; MediaController.releaseFuture(f) }
+        super.onDestroy()
     }
 }

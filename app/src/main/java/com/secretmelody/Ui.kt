@@ -1530,7 +1530,8 @@ private fun NowPlaying(
                 drag = null
             },
             valueRange = 0f..max,
-            thumb = { Box(Modifier.size(12.dp).background(Color.White, CircleShape)) },
+            // wrapContentSize: the slider stretches its thumb to 44dp tall, which bent the dot off the track; keep it a 12dp circle on centre.
+            thumb = { Box(Modifier.wrapContentSize().size(12.dp).background(Color.White, CircleShape)) },
             track = {
                 Box(
                     Modifier
@@ -1599,8 +1600,8 @@ private fun NowPlaying(
             }
             if (label != null) Text(label, color = AccentText, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
-            // Speed and pitch move together, like the slowed / nightcore versions people upload.
-            listOf(0.8f to "Slowed", 1f to "ปกติ", 1.25f to "Nightcore").forEach { (s, name) ->
+            // Speed and pitch move together, like the slowed / sped up versions people upload.
+            listOf(0.8f to "Slowed", 1f to "ปกติ", 1.25f to "Sped up").forEach { (s, name) ->
                 val on = ui.speed == s
                 TextButton(
                     onClick = { player.playbackParameters = PlaybackParameters(s, s) },

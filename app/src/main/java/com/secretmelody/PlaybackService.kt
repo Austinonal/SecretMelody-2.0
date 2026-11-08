@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import android.content.ContentUris
@@ -79,7 +80,8 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         resolver = StreamResolver(this)
-        val player = ExoPlayer.Builder(this)
+        // The AudioTrack applies speed/pitch itself, so Slowed / Sped up switch at once instead of after the buffered audio drains.
+        val player = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableAudioTrackPlaybackParams(true))
             // Files play as they are; ytstream:// (a YouTube song) becomes YouTube's audio address when it starts.
             .setMediaSourceFactory(DefaultMediaSourceFactory(ResolvingDataSource.Factory(DefaultDataSource.Factory(this), resolver)))
             // Start a stream after 1 s of audio instead of 2.5 s.
